@@ -5,7 +5,7 @@ import numpy as np
 _LOGGER = logging.getLogger(__name__)
 
 
-def rolling_window_sequences(
+def sliding_window_sequences(
     data: np.ndarray,
     window_size: int,
 ):

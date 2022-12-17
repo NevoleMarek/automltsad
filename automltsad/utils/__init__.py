@@ -1,1 +1,1 @@
-from automltsad.utils.utils import rolling_window_sequences
+from automltsad.utils.utils import sliding_window_sequences
