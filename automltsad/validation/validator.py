@@ -5,7 +5,7 @@ import numpy as np
 _LOGGER = logging.getLogger(__name__)
 
 
-def validate_data_format(X: np.ndarray):
+def validate_data_3d(X: np.ndarray):
     _LOGGER.info('Validating_data_format')
     n_dims = len(X.shape)
     if n_dims != 3:
@@ -14,10 +14,19 @@ def validate_data_format(X: np.ndarray):
         )
 
 
-def check_if(obj, attr):
+def validate_data_2d(X: np.ndarray):
+    _LOGGER.info('Validating_data_format')
+    n_dims = len(X.shape)
+    if n_dims != 2:
+        raise Exception(
+            'Data should be in 2D numpy format (n_samples, n_timepoints)'
+        )
+
+
+def check_if(obj, attr, message):
     if hasattr(obj, attr):
         if not getattr(obj, attr):
-            raise Exception(f'Value of "{attr}" is {getattr(obj, attr)}')
+            raise Exception(message)
     else:
         raise AttributeError(
             f'Object {obj.__class__.__name__} has no attribute called {attr}'
@@ -25,7 +34,7 @@ def check_if(obj, attr):
 
 
 def check_if_fitted(obj):
-    return check_if(obj, '_fitted')
+    check_if(obj, '_fitted', f'Fit the object {obj.__class__.__name__}')
 
 
 def check_one_sample(X: np.ndarray):
