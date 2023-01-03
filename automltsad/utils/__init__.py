@@ -1,1 +1,4 @@
-from automltsad.utils.utils import sliding_window_sequences
+from automltsad.utils.utils import (
+    reduce_window_scores,
+    sliding_window_sequences,
+)

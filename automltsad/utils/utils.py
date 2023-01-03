@@ -15,3 +15,16 @@ def sliding_window_sequences(
     output = output.reshape(-1, window_size * n_features)
     _LOGGER.info(f'Rolling window op: Shape of output {output.shape}')
     return output
+
+
+def reduce_window_scores(scores: np.ndarray, window_size: int):
+    unwindowed_length = (window_size - 1) + len(scores)
+    unwindowed_scores = np.full(
+        shape=(unwindowed_length, window_size), fill_value=np.nan
+    )
+    unwindowed_scores[: len(scores), 0] = scores
+
+    for w in range(1, window_size):
+        unwindowed_scores[:, w] = np.roll(unwindowed_scores[:, 0], w)
+
+    return np.nanmean(unwindowed_scores, axis=1)
