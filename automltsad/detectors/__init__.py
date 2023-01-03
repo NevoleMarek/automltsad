@@ -1,5 +1,5 @@
-from automltsad.detector.base import BaseDetector
-from automltsad.detector.detectors import (
+from automltsad.detectors.base import BaseDetector
+from automltsad.detectors.detectors import (
     KNN,
     IsolationForestAD,
     TrivialDetector,

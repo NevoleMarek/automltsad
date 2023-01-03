@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import NearestNeighbors
 
-from automltsad.detector import BaseDetector
+from automltsad.detectors import BaseDetector
 from automltsad.transform import MeanVarianceScaler
 from automltsad.utils import reduce_window_scores, sliding_window_sequences
 from automltsad.validation import (
