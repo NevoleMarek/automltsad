@@ -37,7 +37,7 @@ class TrivialDetector(BaseDetector):
         self._fitted = False
         self.contamination = contamination
 
-    def fit(self, X: np.ndarray):
+    def fit(self, X: np.ndarray, y=None):
         '''
         Fit the trivial detector on training dataset.
 
@@ -45,6 +45,7 @@ class TrivialDetector(BaseDetector):
         ----------
         X : np.ndarray of shape (1, n_timepoints, n_features)
             Training data.
+        y : ignored
 
         Returns
         -------
@@ -142,7 +143,7 @@ class WindowingDetector(BaseDetector):
         if self._standardize:
             self._scaler = MeanVarianceScaler(**scaler_kwargs)
 
-    def fit(self, X: np.ndarray):
+    def fit(self, X: np.ndarray, y=None):
         '''
         Fit supplied model to transformed data.
 
