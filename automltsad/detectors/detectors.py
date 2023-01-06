@@ -1,10 +1,10 @@
 import logging
 
 import numpy as np
+from sklearn.base import BaseEstimator
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import NearestNeighbors
 
-from automltsad.detectors import BaseDetector
 from automltsad.transform import MeanVarianceScaler
 from automltsad.utils import reduce_window_scores, sliding_window_sequences
 from automltsad.validation import (
@@ -17,7 +17,7 @@ from automltsad.validation import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class TrivialDetector(BaseDetector):
+class TrivialDetector(BaseEstimator):
     '''
     TrivialDetector is a simple detector implementation.
 
@@ -108,7 +108,7 @@ class TrivialDetector(BaseDetector):
         return np.abs((X - self._mean) / self._std)
 
 
-class WindowingDetector(BaseDetector):
+class WindowingDetector(BaseEstimator):
     '''
     WindowingDetector allows for regular outlier/anomaly detection algorithms
     to be used on time series data. Subsequences are extracted from the
@@ -209,7 +209,7 @@ class WindowingDetector(BaseDetector):
         return sliding_window_sequences(X, window_size=self._window_size)
 
 
-class KNN(BaseDetector):
+class KNN(BaseEstimator):
     '''
     Nearest neighbor detector.
 
@@ -283,7 +283,7 @@ class KNN(BaseDetector):
             n_jobs=n_jobs,
         )
 
-    def fit(self, X: np.ndarray):
+    def fit(self, X: np.ndarray, y=None):
         '''
         Fit the nearest neighbor estimator.
 
@@ -347,7 +347,7 @@ class KNN(BaseDetector):
         return np.mean(dist[:, 1:], axis=1)
 
 
-class IsolationForestAD(BaseDetector):
+class IsolationForestAD(BaseEstimator):
     '''
     Isolation Forest Algorithm.
 
@@ -432,7 +432,7 @@ class IsolationForestAD(BaseDetector):
             warm_start=warm_start,
         )
 
-    def fit(self, X: np.ndarray):
+    def fit(self, X: np.ndarray, y=None):
         '''
         Fit the isolation forest estimator.
 
