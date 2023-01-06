@@ -3,7 +3,7 @@ import logging
 import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.ensemble import IsolationForest
-from sklearn.neighbors import NearestNeighbors
+from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
 
 from automltsad.transform import MeanVarianceScaler
 from automltsad.utils import reduce_window_scores, sliding_window_sequences
@@ -238,8 +238,8 @@ class KNN(BaseEstimator):
         Metric to use for distance computation. Default is "minkowski", which
         results in the standard Euclidean distance when p = 2. See the
         documentation of `scipy.spatial.distance
-        <https://docs.scipy.org/doc/scipy/reference/spatial.distance.html>`_ and
-        the metrics listed in
+        <https://docs.scipy.org/doc/scipy/reference/spatial.distance.html>`_
+        and the metrics listed in
         :class:`~sklearn.metrics.pairwise.distance_metrics` for valid metric
         values.
         If metric is "precomputed", X is assumed to be a distance matrix and
@@ -386,7 +386,8 @@ class IsolationForestAD(BaseEstimator):
     max_features : int or float, default=1.0
         The number of features to draw from X to train each base estimator.
             - If int, then draw `max_features` features.
-            - If float, then draw `max(1, int(max_features * n_features_in_))` features.
+            - If float, then draw `max(1, int(max_features * n_features_in_))`
+            features.
         Note: using a float number less than 1.0 or integer less than number of
         features will enable feature subsampling and leads to a longerr runtime.
     bootstrap : bool, default=False
@@ -430,6 +431,167 @@ class IsolationForestAD(BaseEstimator):
             random_state=random_state,
             verbose=verbose,
             warm_start=warm_start,
+        )
+
+    def fit(self, X: np.ndarray, y=None):
+        '''
+        Fit the isolation forest estimator.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (n_samples, n_timepoints)
+            Training data.
+
+        Returns
+        -------
+        self
+            Fitted KNN estimator.
+        '''
+        _LOGGER.info(f'Fitting {self.__class__.__name__}')
+        validate_data_2d(X)
+        self._fitted = True
+        self._detector.fit(X)
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        '''
+        Predict anomaly labels.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (n_samples, n_timepoints)
+            Data
+
+        Returns
+        -------
+        np.ndarray
+            np.ndarray of shape (n_samples, 1)
+            Anomaly labels
+        '''
+        _LOGGER.info(f'Predicting {self.__class__.__name__}')
+        return self._detector.predict(X)
+
+    def predict_anomaly_scores(self, X: np.ndarray):
+        '''
+        Predict anomaly scores.
+
+        The higher the score the more anomalous the point.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (n_samples, n_timepoints)
+            Data
+
+        Returns
+        -------
+        np.ndarray, np.ndarray
+            np.ndarray of shape (n_samples, 1)
+            Distance to nearest data point for each sample
+            np.ndarray of shape (n_samples, 1)
+            Index of nearest neighbor in training data for each sample from X
+
+        '''
+        check_if_fitted(self)
+        return -self._detector.score_samples(X)
+
+
+class LOF(BaseEstimator):
+    '''
+    Unsupervised Outlier Detection using the Local Outlier Factor (LOF).
+    The anomaly score of each sample is called the Local Outlier Factor.
+    It measures the local deviation of the density of a given sample with
+    respect to its neighbors.
+    It is local in that the anomaly score depends on how isolated the object
+    is with respect to the surrounding neighborhood.
+    More precisely, locality is given by k-nearest neighbors, whose distance
+    is used to estimate the local density.
+    By comparing the local density of a sample to the local densities of its
+    neighbors, one can identify samples that have a substantially lower density
+    than their neighbors. These are considered outliers.
+
+    Parameters
+    ----------
+    n_neighbors : int, default=20
+        Number of neighbors to use by default for :meth:`kneighbors` queries.
+        If n_neighbors is larger than the number of samples provided,
+        all samples will be used.
+    algorithm : {'auto', 'ball_tree', 'kd_tree', 'brute'}, default='auto'
+        Algorithm used to compute the nearest neighbors:
+        - 'ball_tree'
+        - 'kd_tree'
+        - 'brute' will use a brute-force search.
+        - 'auto' will attempt to decide the most appropriate algorithm
+          based on the values passed to fit method.
+        Note: fitting on sparse input will override the setting of
+        this parameter, using brute force.
+    leaf_size : int, default=30
+        Leaf is size passed to BallTree or KDTree. This can
+        affect the speed of the construction and query, as well as the memory
+        required to store the tree. The optimal value depends on the
+        nature of the problem.
+    metric : str or callable, default='minkowski'
+        Metric to use for distance computation. Default is "minkowski", which
+        results in the standard Euclidean distance when p = 2. See the
+        documentation of `scipy.spatial.distance
+        <https://docs.scipy.org/doc/scipy/reference/spatial.distance.html>`_
+        and the metrics listed in
+        :class:`~sklearn.metrics.pairwise.distance_metrics` for valid metric
+        values.
+        If metric is "precomputed", X is assumed to be a distance matrix and
+        must be square during fit. X may be a :term:`sparse graph`, in which
+        case only "nonzero" elements may be considered neighbors.
+        If metric is a callable function, it takes two arrays representing 1D
+        vectors as inputs and must return one value indicating the distance
+        between those vectors. This works for Scipy's metrics, but is less
+        efficient than passing the metric name as a string.
+    p : int, default=2
+        Parameter for the Minkowski metric from
+        :func:`sklearn.metrics.pairwise.pairwise_distances`. When p = 1, this
+        is equivalent to using manhattan_distance (l1), and euclidean_distance
+        (l2) for p = 2. For arbitrary p, minkowski_distance (l_p) is used.
+    metric_params : dict, default=None
+        Additional keyword arguments for the metric function.
+    contamination : 'auto' or float, default='auto'
+        The amount of contamination of the data set, i.e. the proportion
+        of outliers in the data set. When fitting this is used to define the
+        threshold on the scores of the samples.
+        - if 'auto', the threshold is determined as in the
+          original paper,
+        - if a float, the contamination should be in the range (0, 0.5].
+    novelty : bool, default=False
+        By default, LocalOutlierFactor is only meant to be used for outlier
+        detection (novelty=False). Set novelty to True if you want to use
+        LocalOutlierFactor for novelty detection. In this case be aware that
+        you should only use predict, decision_function and score_samples
+        on new unseen data and not on the training set; and note that the
+        results obtained this way may differ from the standard LOF results.
+    n_jobs : int, default=None
+        The number of parallel jobs to run for neighbors search.
+    '''
+
+    def __init__(
+        self,
+        n_neighbors=20,
+        algorithm="auto",
+        leaf_size=30,
+        metric="minkowski",
+        p=2,
+        metric_params=None,
+        contamination="auto",
+        novelty=True,
+        n_jobs=None,
+    ):
+        self._fitted = False
+        self._detector = LocalOutlierFactor(
+            n_neighbors=n_neighbors,
+            algorithm=algorithm,
+            leaf_size=leaf_size,
+            metric=metric,
+            p=p,
+            metric_params=metric_params,
+            contamination=contamination,
+            novelty=novelty,
+            n_jobs=n_jobs,
         )
 
     def fit(self, X: np.ndarray, y=None):

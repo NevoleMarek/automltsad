@@ -1,6 +1,6 @@
-from automltsad.detectors.base import BaseDetector
 from automltsad.detectors.detectors import (
     KNN,
+    LOF,
     IsolationForestAD,
     TrivialDetector,
     WindowingDetector,
