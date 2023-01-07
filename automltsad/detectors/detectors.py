@@ -139,7 +139,6 @@ class WindowingDetector(BaseEstimator):
         self._window_size = window_size
         self._detector = detector
         self._standardize = standardize
-        self._scaler = None
         if self._standardize:
             self._scaler = MeanVarianceScaler(**scaler_kwargs)
 
