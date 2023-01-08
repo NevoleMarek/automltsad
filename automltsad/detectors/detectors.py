@@ -1,7 +1,9 @@
 import logging
 
 import numpy as np
+import pywt
 from sklearn.base import BaseEstimator
+from sklearn.covariance import EmpiricalCovariance
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
 
@@ -444,7 +446,7 @@ class IsolationForestAD(BaseEstimator):
         Returns
         -------
         self
-            Fitted KNN estimator.
+            Fitted IF estimator.
         '''
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_2d(X)
@@ -483,12 +485,9 @@ class IsolationForestAD(BaseEstimator):
 
         Returns
         -------
-        np.ndarray, np.ndarray
+        np.ndarray
             np.ndarray of shape (n_samples, 1)
-            Distance to nearest data point for each sample
-            np.ndarray of shape (n_samples, 1)
-            Index of nearest neighbor in training data for each sample from X
-
+            Anomaly score
         '''
         check_if_fitted(self)
         return -self._detector.score_samples(X)
@@ -595,7 +594,7 @@ class LOF(BaseEstimator):
 
     def fit(self, X: np.ndarray, y=None):
         '''
-        Fit the isolation forest estimator.
+        Fit the Local outlier factor estimator.
 
         Parameters
         ----------
@@ -605,7 +604,7 @@ class LOF(BaseEstimator):
         Returns
         -------
         self
-            Fitted KNN estimator.
+            Fitted LOF estimator.
         '''
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_2d(X)
@@ -644,12 +643,149 @@ class LOF(BaseEstimator):
 
         Returns
         -------
-        np.ndarray, np.ndarray
+        np.ndarray
             np.ndarray of shape (n_samples, 1)
-            Distance to nearest data point for each sample
+            Anomaly scores
+
+
+        '''
+        check_if_fitted(self)
+        return -self._detector.score_samples(X)
+
+
+class DWTMLEAD(BaseEstimator):
+    '''
+    Unsupervised offline method
+
+     “Time Series Anomaly Detection with Discrete Wavelet Transforms and Maximum Likelihood Estimation.” https://www.researchgate.net/publication/330400907_Time_Series_Anomaly_Detection_with_Discrete_Wavelet_Transforms_and_Maximum_Likelihood_Estimation (accessed Dec. 12, 2022).
+
+    Parameters
+    ----------
+    l: int, default=4
+        Starting level of DWT transform. Has to be < ceil(log2(len(data)))
+    epsilon: float [0,1], default=0.01
+        Used as percentile of probabilities when deciding whether window is anomalous.
+    b: int, default=2
+        Used as threshold to predict anomaly labels of data points.
+    '''
+
+    def __init__(
+        self,
+        l=4,
+        epsilon=0.01,
+        b=2,
+    ):
+        self._fitted = False
+        self._l = l
+        self._epsilon = epsilon
+        self._b = b
+
+    def fit(self, X=None, y=None):
+        '''
+        Ignored. Kept for API consistency.
+
+        Parameters
+        ----------
+        X
+            Ignored.
+        y
+            Ignored.
+        Returns
+        -------
+        self
+        '''
+        _LOGGER.info(f'Fitting {self.__class__.__name__}')
+        self._fitted = True
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        '''
+        Predict anomaly labels.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (1, n_timepoints, n_features)
+            Data
+
+        Returns
+        -------
+        np.ndarray
+            np.ndarray of shape (n_samples, 1)
+            Anomaly labels
+        '''
+        _LOGGER.info(f'Predicting {self.__class__.__name__}')
+
+        return self.predict_anomaly_scores(X) > self._b
+
+    def predict_anomaly_scores(self, X: np.ndarray):
+        '''
+        Predict anomaly scores.
+
+        The higher the score the more anomalous the point.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (1, n_timepoints, n_features)
+            Data
+
+        Returns
+        -------
+        np.ndarray
             np.ndarray of shape (n_samples, 1)
             Index of nearest neighbor in training data for each sample from X
 
         '''
         check_if_fitted(self)
-        return -self._detector.score_samples(X)
+        validate_data_3d(X)
+        check_one_sample(X)
+        return self._detect(X)
+
+    def _pad(self, X: np.ndarray):
+        n = X.shape[1]
+        exp = int(np.ceil(np.log2(n)))
+        m = 2**exp
+        return pywt.pad(X, ((0, 0), (0, m - n), (0, 0)), 'symmetric')
+
+    def _detect(self, X: np.ndarray):
+        X_pad = self._pad(X)
+        A, D, ls = self._get_dwt_coeffs(X_pad)
+        ws = [max(2, l - self._l + 1) for l in ls]
+
+        # Get anomalous events
+        a_scores = []
+        l_scores = []
+        for a, w, l in list(zip(A, ws[1:], ls[1:])) + list(zip(D, ws, ls)):
+            a_wl = sliding_window_sequences(data=a, window_size=w)
+            est = EmpiricalCovariance(assume_centered=False).fit(a_wl)
+            p = np.zeros((a_wl.shape[0],))
+            for i, sample in enumerate(a_wl):
+                p[i] = est.score(sample.reshape(1, -1))
+            z_eps = np.percentile(p, 100 * self._epsilon)
+            a = p < z_eps
+            a_scores.append(reduce_window_scores(a, w))
+            l_scores.append(l)
+
+        # Count events
+        anomaly_score = np.zeros((X_pad.shape[1],))
+        for a, l in zip(a_scores, l_scores):
+            anomaly_score += np.repeat(
+                a, 2 ** int(np.log2(X_pad.shape[1]) - l)
+            )
+        anomaly_score[anomaly_score < 2] = 0
+        return anomaly_score[: X.shape[1]]
+
+    def _get_dwt_coeffs(self, X: np.ndarray):
+        A = []
+        D = []
+        ls = []
+
+        a_l = X
+        D.append(X)
+        L = int(np.ceil(np.log2(X.shape[1])))
+        ls.append(L)
+        for l in range(L - self._l):
+            a_l, d_l = pywt.dwt(a_l, wavelet='haar', axis=1)
+            ls.append(L - l - 1)
+            A.append(a_l)
+            D.append(d_l)
+        return A, D, ls
