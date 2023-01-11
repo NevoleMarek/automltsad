@@ -13,6 +13,7 @@ PyWavelets = "^1.4.1"
 tslearn = "^0.5.2"
 pyod = "^1.0.7"
 optuna = "^3.0.5"
+lightgbm = "^3.3.4"
 
 
 [tool.poetry.group.dev.dependencies]
