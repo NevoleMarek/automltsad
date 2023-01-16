@@ -6,6 +6,7 @@ from sklearn.base import BaseEstimator
 from sklearn.covariance import EmpiricalCovariance
 from sklearn.ensemble import IsolationForest, RandomForestRegressor
 from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
+from sklearn.svm import OneClassSVM
 
 from automltsad.transform import MeanVarianceScaler
 from automltsad.utils import reduce_window_scores, sliding_window_sequences
@@ -1039,3 +1040,146 @@ class RandomForest(BaseEstimator):
         validate_data_2d(X)
         y_pred = self._detector.predict(X)
         return np.abs(y_pred - y)
+
+
+class OCSVM(BaseEstimator):
+    '''
+    Unsupervised Outlier Detection.
+    Estimate the support of a high-dimensional distribution.
+    The implementation is based on libsvm.
+
+    Parameters
+    ----------
+    kernel : {'linear', 'poly', 'rbf', 'sigmoid', 'precomputed'} or callable,  \
+        default='rbf'
+         Specifies the kernel type to be used in the algorithm.
+         If none is given, 'rbf' will be used. If a callable is given it is
+         used to precompute the kernel matrix.
+    degree : int, default=3
+        Degree of the polynomial kernel function ('poly').
+        Must be non-negative. Ignored by all other kernels.
+    gamma : {'scale', 'auto'} or float, default='scale'
+        Kernel coefficient for 'rbf', 'poly' and 'sigmoid'.
+        - if ``gamma='scale'`` (default) is passed then it uses
+          1 / (n_features * X.var()) as value of gamma,
+        - if 'auto', uses 1 / n_features
+        - if float, must be non-negative.
+    coef0 : float, default=0.0
+        Independent term in kernel function.
+        It is only significant in 'poly' and 'sigmoid'.
+    tol : float, default=1e-3
+        Tolerance for stopping criterion.
+    nu : float, default=0.5
+        An upper bound on the fraction of training
+        errors and a lower bound of the fraction of support
+        vectors. Should be in the interval (0, 1]. By default 0.5
+        will be taken.
+    shrinking : bool, default=True
+        Whether to use the shrinking heuristic.
+        See the :ref:`User Guide <shrinking_svm>`.
+    cache_size : float, default=200
+        Specify the size of the kernel cache (in MB).
+    verbose : bool, default=False
+        Enable verbose output. Note that this setting takes advantage of a
+        per-process runtime setting in libsvm that, if enabled, may not work
+        properly in a multithreaded context.
+    max_iter : int, default=-1
+        Hard limit on iterations within solver, or -1 for no limit.
+    '''
+
+    def __init__(
+        self,
+        kernel="rbf",
+        degree=3,
+        gamma="scale",
+        coef0=0.0,
+        tol=1e-3,
+        nu=0.5,
+        shrinking=True,
+        cache_size=200,
+        verbose=False,
+        max_iter=-1,
+    ) -> None:
+        self._fitted = False
+        self.kernel = (kernel,)
+        self.degree = (degree,)
+        self.gamma = (gamma,)
+        self.coef0 = (coef0,)
+        self.tol = (tol,)
+        self.nu = (nu,)
+        self.shrinking = (shrinking,)
+        self.cache_size = (cache_size,)
+        self.verbose = (verbose,)
+        self.max_iter = (max_iter,)
+        self._detector = OneClassSVM(
+            kernel=kernel,
+            degree=degree,
+            gamma=gamma,
+            coef0=coef0,
+            tol=tol,
+            nu=nu,
+            shrinking=shrinking,
+            cache_size=cache_size,
+            verbose=verbose,
+            max_iter=max_iter,
+        )
+
+    def fit(self, X: np.ndarray, y=None):
+        '''
+        Fit the OCSVM estimator.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (n_samples, n_timepoints)
+            Training data.
+        y : ignored
+        Returns
+        -------
+        self
+            Fitted estimator.
+        '''
+        _LOGGER.info(f'Fitting {self.__class__.__name__}')
+        validate_data_2d(X)
+        self._fitted = True
+        self._detector.fit(X, y)
+        return self
+
+    def predict(self, X: np.ndarray):
+        '''
+        Predict anomaly labels.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (n_samples, n_timepoints)
+            Data
+
+        Returns
+        -------
+        np.ndarray
+            np.ndarray of shape (n_samples, 1)
+            Anomaly labels
+        '''
+        _LOGGER.info(f'Predicting {self.__class__.__name__}')
+        check_if_fitted(self)
+        raise NotImplementedError()
+        # scores = self.predict_anomaly_scores(X, y)
+        # return scores > self._threshold
+
+    def predict_anomaly_scores(self, X: np.ndarray):
+        '''
+        Predict anomaly scores.
+
+        Parameters
+        ----------
+        X : np.ndarray of shape (n_samples, n_timepoints)
+            Data
+
+        Returns
+        -------
+        np.ndarray, np.ndarray
+            np.ndarray of shape (n_samples,)
+            Absolute difference between predicted and observed values.
+        '''
+        check_if_fitted(self)
+        validate_data_2d(X)
+        return -self._detector.score_samples(X)
