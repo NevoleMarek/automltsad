@@ -58,7 +58,7 @@ def sliding_target_window_sequences(
     windows = sliding_window_sequences(data, predictor_size + target_size)
     predictors = windows[:, :predictor_size]
     targets = windows[:, predictor_size:]
-    return predictors, targets
+    return predictors, np.squeeze(targets)
 
 
 def reduce_window_scores(scores: np.ndarray, window_size: int) -> np.ndarray:
