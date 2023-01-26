@@ -1,4 +1,6 @@
 from sklearn.metrics import (
+    PrecisionRecallDisplay,
+    RocCurveDisplay,
     auc,
     average_precision_score,
     f1_score,
