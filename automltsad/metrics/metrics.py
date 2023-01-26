@@ -165,7 +165,7 @@ def mass_volume_curve(
     Tuple[np.ndarray, np.ndarray]
         A tuple of two arrays, first contains the threshold (mass) values and second contains the volume values
     """
-    if not scores:
+    if scores is None:
         scores = detector.predict_anomaly_scores(X)
 
     # MV paper assumes that lower score corresponds to higher abnormality
@@ -325,4 +325,162 @@ def mv_feature_subsampling_auc_score(
     )
     return feature_subsampling_auc(
         detector, X_train, X_test, mvfunc, n_subfeatures, n_tries
+    )
+
+
+def excess_mass_curve(
+    detector,
+    X: np.ndarray,
+    scores: np.ndarray = None,
+    t_count: int = 2048,
+    mc_samples_count: int = 32768,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute the Excess Mass Curve (EM) for an anomaly detector.
+
+    Reference: http://arxiv.org/abs/1502.01684
+
+    Parameters
+    ----------
+    detector: object
+        An anomaly detector implementing a 'predict_anomaly_scores' method
+    X : np.ndarray of shape (n_samples, n_features)
+        The dataset to evaluate the detector on.
+    scores : np.ndarray of shape (n_samples,)
+        The anomaly scores for the samples in `X`, if already computed.
+        If not provided, the detector's 'predict_anomaly_scores' method will be used to compute them.
+    t_count: int, default=2048
+        The number of points at which to evaluate the EM
+    mc_samples_count : int, default=32768
+        The number of random samples to use for the Monte Carlo estimation of the EM
+
+    Returns
+    -------
+    tuple of (np.ndarray, np.ndarray)
+        The first element of tuple is the array of threshold values used to compute the EM
+        The second element of tuple is the corresponding EM values
+    """
+    if scores is None:
+        scores = detector.predict_anomaly_scores(X)
+
+    # EM paper assumes that lower score corresponds to higher abnormality
+    scores_vec = -scores
+    us = np.unique(scores_vec)
+
+    # volume of hypercube enclosing the data
+    X_max = np.max(X, axis=0)
+    X_min = np.min(X, axis=0)
+    volume = np.prod(X_max - X_min)
+
+    # Monte Carlo sampling
+    n_samples, n_features = X.shape
+    mc_samples = np.random.uniform(
+        X_min, X_max, (mc_samples_count, n_features)
+    )
+    scores_samples = -detector.predict_anomaly_scores(mc_samples)
+
+    ts = np.linspace(0, 100 / volume, t_count)
+    ems = np.zeros_like(ts)
+    ems[0] = 1.0
+    for u in us:
+        mass = (scores_vec > u).sum() / n_samples
+        vol = (scores_samples > u).sum() / mc_samples_count * volume
+        ems = np.maximum(ems, mass - ts * vol)
+    return ts, ems
+
+
+def excess_mass_auc_score(
+    detector,
+    X: np.ndarray,
+    scores: np.ndarray = None,
+    t_count: int = 2048,
+    em_max: float = 0.9,
+    mc_samples_count: int = 32768,
+) -> float:
+    """
+    Compute the area under the Excess Mass curve (AUC-EM) for a given detector and data.
+    The Excess Mass curve is a measure of the performance of a detector on a given dataset.
+    AUC-EM is a single number measure of the detector performance that can be used for comparison.
+
+    Parameters
+    ----------
+        detector: object
+            An object which has a fit method and a predict_anomaly_scores method.
+        X: np.ndarray, shape (n_samples, n_features)
+            The input data.
+        scores: np.ndarray, shape (n_samples,), optional (default=None)
+            Anomaly scores for the samples. If None, detector.predict_anomaly_scores(X) will be used.
+        t_count: int, optional default=2048
+            Number of threshold values to use in the computation of the EM curve.
+        em_max: float, optional (default=0.9)
+            Maximum value for the y-axis of the EM curve.
+        mc_samples_count: int, optional (default=32768)
+            Number of samples to use in the Monte Carlo sampling of the volume.
+
+    Returns
+    -------
+        float
+            The area under the Excess Mass curve.
+    """
+    ts, ems = excess_mass_curve(
+        detector=detector,
+        X=X,
+        scores=scores,
+        t_count=t_count,
+        mc_samples_count=mc_samples_count,
+    )
+
+    em_max_idx = np.argmax(ems < em_max)
+    if em_max_idx == 0:
+        em_max_idx = ems.shape[0]
+    ts = ts[:em_max_idx]
+    ems = ems[:em_max_idx]
+    return auc(ts, ems)
+
+
+def em_feature_subsampling_auc_score(
+    detector,
+    X_train: np.ndarray,
+    X_test: np.ndarray,
+    t_count: int = 2048,
+    em_max: float = 0.9,
+    mc_samples_count: int = 32768,
+    n_subfeatures: int = 5,
+    n_tries: int = 50,
+) -> float:
+    """
+    Compute the EM-AUC score for a detector on a given test set, using subsampling of features.
+
+    Parameters
+    ----------
+    detector : object
+        An object with a `predict_anomaly_scores` method that takes in a numpy array and returns anomaly scores.
+    X_train : numpy array
+        The training set.
+    X_test : numpy array
+        The test set.
+    t_count : int, optional by default = 2048
+        Number of points on the EM curve.
+    em_max : float, optional by default = 0.9
+        The maximum value of the EM curve.
+    mc_samples_count : int, optional by default = 32768
+        Number of samples to use for Monte Carlo sampling.
+    n_subfeatures : int, optional by default = 5
+        Number of features to subsample for each try.
+    n_tries : int, optional by default = 50
+        Number of subsampling tries.
+
+    Returns
+    -------
+    float
+        The EM-AUC score.
+    """
+    emfunc = partial(
+        excess_mass_auc_score,
+        t_count=t_count,
+        em_max=em_max,
+        mc_samples_count=mc_samples_count,
+    )
+    return feature_subsampling_auc(
+        detector, X_train, X_test, emfunc, n_subfeatures, n_tries
     )

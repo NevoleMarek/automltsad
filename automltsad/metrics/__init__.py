@@ -8,6 +8,9 @@ from sklearn.metrics import (
 )
 
 from automltsad.metrics.metrics import (
+    em_feature_subsampling_auc_score,
+    excess_mass_auc_score,
+    excess_mass_curve,
     f1_pa,
     f1_pa_auc_score,
     f1_pa_curve,
