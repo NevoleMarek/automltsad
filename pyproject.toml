@@ -15,6 +15,11 @@ pyod = "^1.0.7"
 optuna = "^3.0.5"
 lightgbm = "^3.3.4"
 statsmodels = "^0.13.5"
+torch = "^1.13.1"
+torchvision = "^0.14.1"
+dgl = "^1.0.0"
+dglgo = "^0.0.2"
+astropy = "^5.2.1"
 
 
 [tool.poetry.group.dev.dependencies]
