@@ -8,6 +8,7 @@ from sklearn.ensemble import IsolationForest, RandomForestRegressor
 from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
 from sklearn.svm import OneClassSVM
 
+from automltsad.detectors.deeplearning import GDN, LSTM_AE, VAE, TranAD
 from automltsad.transform import MeanVarianceScaler
 from automltsad.utils import reduce_window_scores, sliding_window_sequences
 from automltsad.validation import (
@@ -22,7 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class TrivialDetector(BaseEstimator):
     '''
-    TrivialDetector is a simple detector implementation.
+    TrivialDetector is a simple model implementation.
 
     TrivialDetector standardizes data based on mean and std of training data.
     Anomaly score is the number of stds from mean value of training data.
@@ -37,12 +38,12 @@ class TrivialDetector(BaseEstimator):
     '''
 
     def __init__(self, contamination: float) -> None:
-        self._fitted = False
+        self.fitted = False
         self.contamination = contamination
 
     def fit(self, X: np.ndarray, y=None):
         '''
-        Fit the trivial detector on training dataset.
+        Fit the trivial model on training dataset.
 
         Parameters
         ----------
@@ -53,16 +54,16 @@ class TrivialDetector(BaseEstimator):
         Returns
         -------
         self: TrivialDetector
-            The fitted trivial detector.
+            The fitted trivial model.
         '''
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_3d(X)
         check_one_sample(X)
-        self._fitted = True
-        self._mean = np.mean(X, axis=1)
-        self._std = np.std(X, axis=1)
-        self._threshold = np.quantile(
-            (X - self._mean) / self._std, 1 - self.contamination
+        self.fitted = True
+        self.mean = np.mean(X, axis=1)
+        self.std = np.std(X, axis=1)
+        self.threshold = np.quantile(
+            (X - self.mean) / self.std, 1 - self.contamination
         )
         return self
 
@@ -87,7 +88,7 @@ class TrivialDetector(BaseEstimator):
         check_if_fitted(self)
 
         scores = self.predict_anomaly_scores(X)
-        return scores > self._threshold
+        return scores > self.threshold
 
     def predict_anomaly_scores(self, X: np.ndarray) -> np.ndarray:
         '''
@@ -108,7 +109,7 @@ class TrivialDetector(BaseEstimator):
         check_one_sample(X)
         check_if_fitted(self)
 
-        return np.abs((X - self._mean) / self._std)
+        return np.abs((X - self.mean) / self.std)
 
 
 class WindowingDetector(BaseEstimator):
@@ -119,8 +120,8 @@ class WindowingDetector(BaseEstimator):
 
     Parameters
     ----------
-    detector
-        Detector model to be applied on subsequences.
+    model
+        model model to be applied on subsequences.
     window_size: int
         Size of the subsequences.
     standardize: bool
@@ -131,19 +132,19 @@ class WindowingDetector(BaseEstimator):
 
     def __init__(
         self,
-        detector,
+        model,
         window_size: int,
         standardize: bool = False,
         **scaler_kwargs,
     ) -> None:
         if window_size < 1:
             raise ValueError('Window size should be > 0')
-        self._fitted = False
-        self._window_size = window_size
-        self._detector = detector
-        self._standardize = standardize
-        if self._standardize:
-            self._scaler = MeanVarianceScaler(**scaler_kwargs)
+        self.fitted = False
+        self.window_size = window_size
+        self.model = model
+        self.standardize = standardize
+        if self.standardize:
+            self.scaler = MeanVarianceScaler(**scaler_kwargs)
 
     def fit(self, X: np.ndarray, y=None):
         '''
@@ -161,12 +162,12 @@ class WindowingDetector(BaseEstimator):
         validate_data_3d(X)
         check_one_sample(X)
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
-        self._fitted = True
+        self.fitted = True
         X_sequences = self._prep(X)
-        if self._standardize:
-            X_sequences = self._scaler.fit_transform(X_sequences)
+        if self.standardize:
+            X_sequences = self.scaler.fit_transform(X_sequences)
 
-        self._detector.fit(X_sequences)
+        self.model.fit(X_sequences)
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -188,10 +189,10 @@ class WindowingDetector(BaseEstimator):
         check_one_sample(X)
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
         X_sequences = self._prep(X)
-        if self._standardize:
-            X_sequences = self._scaler.transform(X_sequences)
+        if self.standardize:
+            X_sequences = self.scaler.transform(X_sequences)
 
-        labels = self._detector.predict(X_sequences)
+        labels = self.model.predict(X_sequences)
         return labels
 
     def predict_anomaly_scores(self, X: np.ndarray):
@@ -199,16 +200,16 @@ class WindowingDetector(BaseEstimator):
         validate_data_3d(X)
         check_one_sample(X)
         X_sequences = self._prep(X)
-        if self._standardize:
-            X_sequences = self._scaler.transform(X_sequences)
+        if self.standardize:
+            X_sequences = self.scaler.transform(X_sequences)
 
         return reduce_window_scores(
-            self._detector.predict_anomaly_scores(X_sequences),
-            self._window_size,
+            self.model.predict_anomaly_scores(X_sequences),
+            self.window_size,
         )
 
     def _prep(self, X: np.ndarray):
-        return sliding_window_sequences(X, window_size=self._window_size)
+        return sliding_window_sequences(X, window_size=self.window_size)
 
 
 class KNN(BaseEstimator):
@@ -273,8 +274,16 @@ class KNN(BaseEstimator):
         metric_params=None,
         n_jobs=None,
     ) -> None:
-        self._fitted = False
-        self._detector = NearestNeighbors(
+        self.fitted = False
+        self.n_neighbors = n_neighbors
+        self.radius = radius
+        self.algorithm = algorithm
+        self.leaf_size = leaf_size
+        self.metric = metric
+        self.p = p
+        self.metric_params = metric_params
+        self.n_jobs = n_jobs
+        self.model = NearestNeighbors(
             n_neighbors=n_neighbors,
             radius=radius,
             algorithm=algorithm,
@@ -301,10 +310,10 @@ class KNN(BaseEstimator):
         '''
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_2d(X)
-        self._fitted = True
-        self._detector.fit(X)
-        dist, _ = self._detector.kneighbors(X, self._detector.n_neighbors + 1)
-        self._threshold = np.max(np.mean(dist[:, 1:], axis=1))
+        self.fitted = True
+        self.model.fit(X)
+        dist, _ = self.model.kneighbors(X, self.n_neighbors + 1)
+        self.threshold = np.max(np.mean(dist[:, 1:], axis=1))
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -324,7 +333,7 @@ class KNN(BaseEstimator):
         '''
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
         dist = self.predict_anomaly_scores(X)
-        return dist > self._threshold
+        return dist > self.threshold
 
     def predict_anomaly_scores(self, X: np.ndarray):
         '''
@@ -345,7 +354,7 @@ class KNN(BaseEstimator):
 
         '''
         check_if_fitted(self)
-        dist, _ = self._detector.kneighbors(X, self._detector.n_neighbors)
+        dist, _ = self.model.kneighbors(X, self.n_neighbors)
         return np.mean(dist[:, 1:], axis=1)
 
 
@@ -422,8 +431,17 @@ class IsolationForestAD(BaseEstimator):
         verbose=0,
         warm_start=False,
     ) -> None:
-        self._fitted = False
-        self._detector = IsolationForest(
+        self.fitted = False
+        self.n_estimators = n_estimators
+        self.max_samples = max_samples
+        self.contamination = contamination
+        self.max_features = max_features
+        self.bootstrap = bootstrap
+        self.n_jobs = n_jobs
+        self.random_state = random_state
+        self.verbose = verbose
+        self.warm_start = warm_start
+        self.model = IsolationForest(
             n_estimators=n_estimators,
             max_samples=max_samples,
             contamination=contamination,
@@ -451,8 +469,8 @@ class IsolationForestAD(BaseEstimator):
         '''
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_2d(X)
-        self._fitted = True
-        self._detector.fit(X)
+        self.fitted = True
+        self.model.fit(X)
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -471,7 +489,7 @@ class IsolationForestAD(BaseEstimator):
             Anomaly labels
         '''
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
-        return self._detector.predict(X)
+        return self.model.predict(X)
 
     def predict_anomaly_scores(self, X: np.ndarray):
         '''
@@ -491,7 +509,7 @@ class IsolationForestAD(BaseEstimator):
             Anomaly score
         '''
         check_if_fitted(self)
-        return -self._detector.score_samples(X)
+        return -self.model.score_samples(X)
 
 
 class LOF(BaseEstimator):
@@ -580,8 +598,16 @@ class LOF(BaseEstimator):
         novelty=True,
         n_jobs=None,
     ):
-        self._fitted = False
-        self._detector = LocalOutlierFactor(
+        self.fitted = False
+        self.algorithm = algorithm
+        self.leaf_size = leaf_size
+        self.metric = metric
+        self.p = p
+        self.metric_params = metric_params
+        self.contamination = contamination
+        self.novelty = novelty
+        self.n_jos = n_jobs
+        self.model = LocalOutlierFactor(
             n_neighbors=n_neighbors,
             algorithm=algorithm,
             leaf_size=leaf_size,
@@ -609,8 +635,8 @@ class LOF(BaseEstimator):
         '''
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_2d(X)
-        self._fitted = True
-        self._detector.fit(X)
+        self.fitted = True
+        self.model.fit(X)
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -629,7 +655,7 @@ class LOF(BaseEstimator):
             Anomaly labels
         '''
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
-        return self._detector.predict(X)
+        return self.model.predict(X)
 
     def predict_anomaly_scores(self, X: np.ndarray):
         '''
@@ -651,7 +677,7 @@ class LOF(BaseEstimator):
 
         '''
         check_if_fitted(self)
-        return -self._detector.score_samples(X)
+        return -self.model.score_samples(X)
 
 
 class DWTMLEAD(BaseEstimator):
@@ -676,10 +702,10 @@ class DWTMLEAD(BaseEstimator):
         epsilon=0.01,
         b=2,
     ):
-        self._fitted = False
-        self._l = l
-        self._epsilon = epsilon
-        self._b = b
+        self.fitted = False
+        self.l = l
+        self.epsilon = epsilon
+        self.b = b
 
     def fit(self, X=None, y=None):
         '''
@@ -696,7 +722,7 @@ class DWTMLEAD(BaseEstimator):
         self
         '''
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
-        self._fitted = True
+        self.fitted = True
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -716,7 +742,7 @@ class DWTMLEAD(BaseEstimator):
         '''
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
 
-        return self.predict_anomaly_scores(X) > self._b
+        return self.predict_anomaly_scores(X) > self.b
 
     def predict_anomaly_scores(self, X: np.ndarray):
         '''
@@ -750,7 +776,7 @@ class DWTMLEAD(BaseEstimator):
     def _detect(self, X: np.ndarray):
         X_pad = self._pad(X)
         A, D, ls = self._get_dwt_coeffs(X_pad)
-        ws = [max(2, l - self._l + 1) for l in ls]
+        ws = [max(2, l - self.l + 1) for l in ls]
 
         # Get anomalous events
         a_scores = []
@@ -761,7 +787,7 @@ class DWTMLEAD(BaseEstimator):
             p = np.zeros((a_wl.shape[0],))
             for i, sample in enumerate(a_wl):
                 p[i] = est.score(sample.reshape(1, -1))
-            z_eps = np.percentile(p, 100 * self._epsilon)
+            z_eps = np.percentile(p, 100 * self.epsilon)
             a = p < z_eps
             a_scores.append(reduce_window_scores(a, w))
             l_scores.append(l)
@@ -784,7 +810,7 @@ class DWTMLEAD(BaseEstimator):
         D.append(X)
         L = int(np.ceil(np.log2(X.shape[1])))
         ls.append(L)
-        for l in range(L - self._l):
+        for l in range(L - self.l):
             a_l, d_l = pywt.dwt(a_l, wavelet='haar', axis=1)
             ls.append(L - l - 1)
             A.append(a_l)
@@ -936,7 +962,7 @@ class RandomForest(BaseEstimator):
         ccp_alpha=0.0,
         max_samples=None,
     ) -> None:
-        self._fitted = False
+        self.fitted = False
         self.n_estimators = n_estimators
         self.criterion = criterion
         self.max_depth = max_depth
@@ -954,7 +980,7 @@ class RandomForest(BaseEstimator):
         self.warm_start = warm_start
         self.ccp_alpha = ccp_alpha
         self.max_samples = max_samples
-        self._detector = RandomForestRegressor(
+        self.model = RandomForestRegressor(
             n_estimators=n_estimators,
             criterion=criterion,
             max_depth=max_depth,
@@ -991,10 +1017,10 @@ class RandomForest(BaseEstimator):
         '''
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_2d(X)
-        self._fitted = True
-        self._detector.fit(X, y)
-        y_pred = self._detector.predict(X)
-        self._threshold = np.nanmax(np.abs(y_pred - y))
+        self.fitted = True
+        self.model.fit(X, y)
+        y_pred = self.model.predict(X)
+        self.threshold = np.nanmax(np.abs(y_pred - y))
         return self
 
     def predict(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -1017,7 +1043,7 @@ class RandomForest(BaseEstimator):
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
         check_if_fitted(self)
         scores = self.predict_anomaly_scores(X, y)
-        return scores > self._threshold
+        return scores > self.threshold
 
     def predict_anomaly_scores(self, X: np.ndarray, y: np.ndarray):
         '''
@@ -1038,7 +1064,7 @@ class RandomForest(BaseEstimator):
         '''
         check_if_fitted(self)
         validate_data_2d(X)
-        y_pred = self._detector.predict(X)
+        y_pred = self.model.predict(X)
         return np.abs(y_pred - y)
 
 
@@ -1100,18 +1126,18 @@ class OCSVM(BaseEstimator):
         verbose=False,
         max_iter=-1,
     ) -> None:
-        self._fitted = False
-        self.kernel = (kernel,)
-        self.degree = (degree,)
-        self.gamma = (gamma,)
-        self.coef0 = (coef0,)
-        self.tol = (tol,)
-        self.nu = (nu,)
-        self.shrinking = (shrinking,)
-        self.cache_size = (cache_size,)
-        self.verbose = (verbose,)
-        self.max_iter = (max_iter,)
-        self._detector = OneClassSVM(
+        self.fitted = False
+        self.kernel = kernel
+        self.degree = degree
+        self.gamma = gamma
+        self.coef0 = coef0
+        self.tol = tol
+        self.nu = nu
+        self.shrinking = shrinking
+        self.cache_size = cache_size
+        self.verbose = verbose
+        self.max_iter = max_iter
+        self.model = OneClassSVM(
             kernel=kernel,
             degree=degree,
             gamma=gamma,
@@ -1140,8 +1166,8 @@ class OCSVM(BaseEstimator):
         '''
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_2d(X)
-        self._fitted = True
-        self._detector.fit(X, y)
+        self.fitted = True
+        self.model.fit(X, y)
         return self
 
     def predict(self, X: np.ndarray):
@@ -1163,7 +1189,7 @@ class OCSVM(BaseEstimator):
         check_if_fitted(self)
         raise NotImplementedError()
         # scores = self.predict_anomaly_scores(X, y)
-        # return scores > self._threshold
+        # return scores > self.threshold
 
     def predict_anomaly_scores(self, X: np.ndarray):
         '''
@@ -1182,4 +1208,4 @@ class OCSVM(BaseEstimator):
         '''
         check_if_fitted(self)
         validate_data_2d(X)
-        return -self._detector.score_samples(X)
+        return -self.model.score_samples(X)
