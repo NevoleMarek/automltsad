@@ -8,6 +8,13 @@ import torch
 import torch.nn as nn
 
 
+def print_progress(ep, n_ep, t_l, v_l=None):
+    if not v_l:
+        print(f'[Epoch {ep+1}/{n_ep}] Train l: {t_l}')
+    else:
+        print(f'[Epoch {ep+1}/{n_ep}] Train l: {t_l} Val l: {v_l}')
+
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
