@@ -107,8 +107,6 @@ class TranAD(nn.Module):
 
 # Copyright (c) 2023, Marek Nevole
 # All rights reserved.
-
-
 class VAE(nn.Module):
     def __init__(
         self,
@@ -187,22 +185,40 @@ class VAE(nn.Module):
 
 
 class LSTM_AE(nn.Module):
-    def __init__(self, n_feats, hidden_size):
+    def __init__(self, n_feats, hidden_size, n_layers=1, dropout=(0.1, 0.1)):
         super().__init__()
         self.n_feats = n_feats
         self.hidden_size = hidden_size
-        self.enc = nn.LSTM(self.n_feats, self.hidden_size, batch_first=True)
-        self.dec = nn.LSTM(self.n_feats, self.hidden_size, batch_first=True)
+        self.n_layers = n_layers
+        self.dropout = dropout
+        self.enc = nn.LSTM(
+            input_size=self.n_feats,
+            hidden_size=self.hidden_size,
+            num_layers=self.n_layers,
+            dropout=self.dropout[0],
+            batch_first=True,
+        )
+        self.dec = nn.LSTM(
+            input_size=self.n_feats,
+            hidden_size=self.hidden_size,
+            num_layers=self.n_layers,
+            dropout=self.dropout[1],
+            batch_first=True,
+        )
         self.out = nn.Linear(self.hidden_size, self.n_feats)
 
     def forward(self, x):
-        _, enc_state = self.enc(x)
+        enc_state = (
+            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
+            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
+        )
+        _, enc_state = self.enc(x, enc_state)
 
         dec_state = enc_state
 
         out = torch.zeros_like(x)
         for i in reversed(range(x.shape[1])):
-            out[:, i] = self.out(dec_state[0])
+            out[:, i, :] = self.out(dec_state[0][-1])
 
             if self.training:
                 _, dec_state = self.dec(x[:, i].unsqueeze(1), dec_state)
