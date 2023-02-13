@@ -2,13 +2,22 @@ import logging
 
 import numpy as np
 import pywt
+import torch
+import torch.nn as nn
+import torch.optim as optim
 from sklearn.base import BaseEstimator
 from sklearn.covariance import EmpiricalCovariance
 from sklearn.ensemble import IsolationForest, RandomForestRegressor
+from sklearn.model_selection import train_test_split
 from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
 from sklearn.svm import OneClassSVM
+from torch.cuda.amp import GradScaler
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
+from automltsad.detectors.callback import CheckpointModel, EarlyStopping
 from automltsad.detectors.deeplearning import GDN, LSTM_AE, VAE, TranAD
+from automltsad.detectors.utils import print_progress
 from automltsad.transform import MeanVarianceScaler
 from automltsad.utils import reduce_window_scores, sliding_window_sequences
 from automltsad.validation import (
@@ -1209,3 +1218,132 @@ class OCSVM(BaseEstimator):
         check_if_fitted(self)
         validate_data_2d(X)
         return -self.model.score_samples(X)
+
+
+class LSTM_AE_Det(BaseEstimator):
+    '''
+    Parameters
+    ----------
+    '''
+
+    def __init__(
+        self,
+        n_feats=1,
+        hidden_size=8,
+        n_layers=1,
+        dropout=(0.1, 0.1),
+        lr=1e-3,
+        batch_size=256,
+        epochs=10,
+        callbacks=None,
+    ) -> None:
+        self.fitted = False
+        self.n_feats = n_feats
+        self.hidden_size = hidden_size
+        self.n_layers = n_layers
+        self.dropout = dropout
+        self.lr = lr
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.model = LSTM_AE(
+            n_feats=self.n_feats,
+            hidden_size=self.hidden_size,
+            n_layers=self.n_layers,
+            dropout=self.dropout,
+        )
+        self.callbacks = [] if not callbacks else callbacks
+
+    def fit(self, X: np.ndarray, y=None):
+        _LOGGER.info(f'Fitting {self.__class__.__name__}')
+        validate_data_3d(X)
+        X_tensor = torch.from_numpy(X)
+        X_train, X_valid = train_test_split(
+            X_tensor, test_size=0.3, shuffle=False
+        )
+
+        train_loader = DataLoader(
+            X_train.to(torch.float32), batch_size=self.batch_size
+        )
+        val_loader = DataLoader(
+            X_valid.to(torch.float32), batch_size=self.batch_size * 4
+        )
+
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model.to(device)
+        self.model.train()
+
+        optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
+        optimizer.zero_grad(set_to_none=True)
+
+        l = nn.L1Loss()
+        scaler = GradScaler()
+
+        for e in range(self.epochs):
+            t_running_loss = 0.0
+            v_running_loss = 0.0
+            self.model.train()
+            for i, d in enumerate(tqdm(train_loader)):
+                d.to(device)
+
+                with torch.autocast(device):
+                    out = self.model(d)
+                    loss = l(out, d)
+
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+
+                t_running_loss += loss
+            self.model.eval()
+            for d in val_loader:
+                d.to(device)
+                with torch.no_grad():
+                    out = self.model(d)
+                    loss = l(out, d)
+
+                v_running_loss += loss
+            print_progress(
+                e,
+                self.epochs,
+                t_running_loss / len(train_loader),
+                v_running_loss / len(val_loader),
+            )
+
+        err_vecs = []
+        self.model.eval()
+        for d in val_loader:
+            d.to(device)
+            with torch.no_grad():
+                out = self.model(d)
+                loss = (out - d).abs()
+            err_vecs.append(loss)
+        err_vecs = torch.cat(err_vecs, dim=0).squeeze().detach().numpy()
+        self.est = EmpiricalCovariance(assume_centered=False).fit(err_vecs)
+
+        return self
+
+    def predict(self, X: np.ndarray):
+        _LOGGER.info(f'Predicting {self.__class__.__name__}')
+        raise NotImplementedError()
+
+    def predict_anomaly_scores(self, X: np.ndarray):
+        validate_data_3d(X)
+        self.model.eval()
+        X_tensor = torch.from_numpy(X)
+        eval_loader = DataLoader(
+            X_tensor.to(torch.float32), batch_size=self.batch_size * 8
+        )
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model.to(device)
+
+        errs = []
+        for d in eval_loader:
+            d.to(device)
+            with torch.no_grad():
+                out = self.model(d)
+                loss = (out - d).abs()
+            errs.append(loss)
+        errs = torch.cat(errs, dim=0).squeeze().detach().numpy()
+        p = self.est.mahalanobis(errs)
+        return p
