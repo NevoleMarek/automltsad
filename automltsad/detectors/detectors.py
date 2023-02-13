@@ -19,7 +19,11 @@ from automltsad.detectors.callback import CheckpointModel, EarlyStopping
 from automltsad.detectors.deeplearning import GDN, LSTM_AE, VAE, TranAD
 from automltsad.detectors.utils import print_progress
 from automltsad.transform import MeanVarianceScaler
-from automltsad.utils import reduce_window_scores, sliding_window_sequences
+from automltsad.utils import (
+    conv_3d_to_2d,
+    reduce_window_scores,
+    sliding_window_sequences,
+)
 from automltsad.validation import (
     check_if_fitted,
     check_one_sample,
@@ -31,7 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class TrivialDetector(BaseEstimator):
-    '''
+    """
     TrivialDetector is a simple model implementation.
 
     TrivialDetector standardizes data based on mean and std of training data.
@@ -44,14 +48,14 @@ class TrivialDetector(BaseEstimator):
     ----------
     contamination : float
         Contamination parameter is used to select threshold.
-    '''
+    """
 
     def __init__(self, contamination: float) -> None:
         self.fitted = False
         self.contamination = contamination
 
     def fit(self, X: np.ndarray, y=None):
-        '''
+        """
         Fit the trivial model on training dataset.
 
         Parameters
@@ -64,7 +68,7 @@ class TrivialDetector(BaseEstimator):
         -------
         self: TrivialDetector
             The fitted trivial model.
-        '''
+        """
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_3d(X)
         check_one_sample(X)
@@ -77,7 +81,7 @@ class TrivialDetector(BaseEstimator):
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        '''
+        """
         Predict anomaly labels.
 
         Parameters
@@ -90,7 +94,7 @@ class TrivialDetector(BaseEstimator):
         np.ndarray
             np.ndarray of shape (1, n_timepoints, n_features)
             Labels of data points
-        '''
+        """
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
         validate_data_3d(X)
         check_one_sample(X)
@@ -100,7 +104,7 @@ class TrivialDetector(BaseEstimator):
         return scores > self.threshold
 
     def predict_anomaly_scores(self, X: np.ndarray) -> np.ndarray:
-        '''
+        """
         Predict anomaly scores.
 
         Parameters
@@ -113,7 +117,7 @@ class TrivialDetector(BaseEstimator):
         np.ndarray
             Array of shape (1, n_timepoints, n_features)
             Anomaly scores.
-        '''
+        """
         validate_data_3d(X)
         check_one_sample(X)
         check_if_fitted(self)
@@ -122,10 +126,13 @@ class TrivialDetector(BaseEstimator):
 
 
 class WindowingDetector(BaseEstimator):
-    '''
+    """
     WindowingDetector allows for regular outlier/anomaly detection algorithms
     to be used on time series data. Subsequences are extracted from the
     original time series and then are served as vectors to the regular models.
+
+    This class is just a wrapper of a model using windows. It's purpose is
+    to allow easily deploy a selected model.
 
     Parameters
     ----------
@@ -137,7 +144,7 @@ class WindowingDetector(BaseEstimator):
         Whether the subsequences should be standardized or not.
     scaler_kwargs: dictionary
         Dictionary of MeanVarianceScaler parameters
-    '''
+    """
 
     def __init__(
         self,
@@ -156,7 +163,7 @@ class WindowingDetector(BaseEstimator):
             self.scaler = MeanVarianceScaler(**scaler_kwargs)
 
     def fit(self, X: np.ndarray, y=None):
-        '''
+        """
         Fit supplied model to transformed data.
 
         Parameters
@@ -167,7 +174,7 @@ class WindowingDetector(BaseEstimator):
         Returns
         -------
         self
-        '''
+        """
         validate_data_3d(X)
         check_one_sample(X)
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
@@ -180,7 +187,7 @@ class WindowingDetector(BaseEstimator):
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        '''
+        """
         Predict anomaly labels
 
         Parameters
@@ -192,7 +199,7 @@ class WindowingDetector(BaseEstimator):
         -------
         np.ndarray
             _description_
-        '''
+        """
         check_if_fitted(self)
         validate_data_3d(X)
         check_one_sample(X)
@@ -222,7 +229,7 @@ class WindowingDetector(BaseEstimator):
 
 
 class KNN(BaseEstimator):
-    '''
+    """
     Nearest neighbor detector.
 
     Parameters
@@ -270,7 +277,7 @@ class KNN(BaseEstimator):
         Additional keyword arguments for the metric function.
     n_jobs : int, default=None
         The number of parallel jobs to run for neighbors search.
-    '''
+    """
 
     def __init__(
         self,
@@ -304,53 +311,54 @@ class KNN(BaseEstimator):
         )
 
     def fit(self, X: np.ndarray, y=None):
-        '''
+        """
         Fit the nearest neighbor estimator.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Training data.
 
         Returns
         -------
         self
             Fitted KNN estimator.
-        '''
+        """
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
-        validate_data_2d(X)
+        validate_data_3d(X)
+        X_ = conv_3d_to_2d(X)
         self.fitted = True
-        self.model.fit(X)
-        dist, _ = self.model.kneighbors(X, self.n_neighbors + 1)
+        self.model.fit(X_)
+        dist, _ = self.model.kneighbors(X_, self.n_neighbors + 1)
         self.threshold = np.max(np.mean(dist[:, 1:], axis=1))
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        '''
+        """
         Predict anomaly labels.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
-            Data
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
+            Data.
 
         Returns
         -------
         np.ndarray
             np.ndarray of shape (n_samples, 1)
             Anomaly labels
-        '''
+        """
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
         dist = self.predict_anomaly_scores(X)
         return dist > self.threshold
 
     def predict_anomaly_scores(self, X: np.ndarray):
-        '''
+        """
         Predict anomaly scores.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Data
 
         Returns
@@ -361,14 +369,15 @@ class KNN(BaseEstimator):
             np.ndarray of shape (n_samples, 1)
             Index of nearest neighbor in training data for each sample from X
 
-        '''
+        """
         check_if_fitted(self)
-        dist, _ = self.model.kneighbors(X, self.n_neighbors)
+        X_ = conv_3d_to_2d(X)
+        dist, _ = self.model.kneighbors(X_, self.n_neighbors)
         return np.mean(dist[:, 1:], axis=1)
 
 
 class IsolationForestAD(BaseEstimator):
-    '''
+    """
     Isolation Forest Algorithm.
 
     Return the anomaly score of each sample using the IsolationForest algorithm
@@ -426,7 +435,7 @@ class IsolationForestAD(BaseEstimator):
         When set to ``True``, reuse the solution of the previous call to fit
         and add more estimators to the ensemble, otherwise, just fit a whole
         new forest.
-    '''
+    """
 
     def __init__(
         self,
@@ -463,66 +472,69 @@ class IsolationForestAD(BaseEstimator):
         )
 
     def fit(self, X: np.ndarray, y=None):
-        '''
+        """
         Fit the isolation forest estimator.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Training data.
 
         Returns
         -------
         self
             Fitted IF estimator.
-        '''
+        """
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
-        validate_data_2d(X)
+        validate_data_3d(X)
+        X_ = conv_3d_to_2d(X)
         self.fitted = True
-        self.model.fit(X)
+        self.model.fit(X_)
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        '''
+        """
         Predict anomaly labels.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Data
 
         Returns
         -------
         np.ndarray
-            np.ndarray of shape (n_samples, 1)
+            np.ndarray of shape (n_samples, )
             Anomaly labels
-        '''
+        """
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
-        return self.model.predict(X)
+        X_ = conv_3d_to_2d(X)
+        return self.model.predict(X_)
 
     def predict_anomaly_scores(self, X: np.ndarray):
-        '''
+        """
         Predict anomaly scores.
 
         The higher the score the more anomalous the point.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Data
 
         Returns
         -------
         np.ndarray
-            np.ndarray of shape (n_samples, 1)
+            np.ndarray of shape (n_samples, )
             Anomaly score
-        '''
+        """
         check_if_fitted(self)
-        return -self.model.score_samples(X)
+        X_ = conv_3d_to_2d(X)
+        return -self.model.score_samples(X_)
 
 
 class LOF(BaseEstimator):
-    '''
+    """
     Unsupervised Outlier Detection using the Local Outlier Factor (LOF).
     The anomaly score of each sample is called the Local Outlier Factor.
     It measures the local deviation of the density of a given sample with
@@ -593,7 +605,7 @@ class LOF(BaseEstimator):
         results obtained this way may differ from the standard LOF results.
     n_jobs : int, default=None
         The number of parallel jobs to run for neighbors search.
-    '''
+    """
 
     def __init__(
         self,
@@ -629,68 +641,71 @@ class LOF(BaseEstimator):
         )
 
     def fit(self, X: np.ndarray, y=None):
-        '''
+        """
         Fit the Local outlier factor estimator.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Training data.
 
         Returns
         -------
         self
             Fitted LOF estimator.
-        '''
+        """
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
-        validate_data_2d(X)
+        validate_data_3d(X)
+        X_ = conv_3d_to_2d(X)
         self.fitted = True
-        self.model.fit(X)
+        self.model.fit(X_)
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        '''
+        """
         Predict anomaly labels.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Data
 
         Returns
         -------
         np.ndarray
-            np.ndarray of shape (n_samples, 1)
+            np.ndarray of shape (n_samples, )
             Anomaly labels
-        '''
+        """
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
-        return self.model.predict(X)
+        X_ = conv_3d_to_2d(X)
+        return self.model.predict(X_)
 
     def predict_anomaly_scores(self, X: np.ndarray):
-        '''
+        """
         Predict anomaly scores.
 
         The higher the score the more anomalous the point.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Data
 
         Returns
         -------
         np.ndarray
-            np.ndarray of shape (n_samples, 1)
+            np.ndarray of shape (n_samples, )
             Anomaly scores
 
 
-        '''
+        """
         check_if_fitted(self)
-        return -self.model.score_samples(X)
+        X_ = conv_3d_to_2d(X)
+        return -self.model.score_samples(X_)
 
 
 class DWTMLEAD(BaseEstimator):
-    '''
+    """
     Unsupervised offline method
 
      “Time Series Anomaly Detection with Discrete Wavelet Transforms and Maximum Likelihood Estimation.” https://www.researchgate.net/publication/330400907_Time_Series_Anomaly_Detection_with_Discrete_Wavelet_Transforms_and_Maximum_Likelihood_Estimation (accessed Dec. 12, 2022).
@@ -703,7 +718,7 @@ class DWTMLEAD(BaseEstimator):
         Used as percentile of probabilities when deciding whether window is anomalous.
     b: int, default=2
         Used as threshold to predict anomaly labels of data points.
-    '''
+    """
 
     def __init__(
         self,
@@ -717,7 +732,7 @@ class DWTMLEAD(BaseEstimator):
         self.b = b
 
     def fit(self, X=None, y=None):
-        '''
+        """
         Ignored. Kept for API consistency.
 
         Parameters
@@ -729,13 +744,13 @@ class DWTMLEAD(BaseEstimator):
         Returns
         -------
         self
-        '''
+        """
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         self.fitted = True
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        '''
+        """
         Predict anomaly labels.
 
         Parameters
@@ -746,15 +761,15 @@ class DWTMLEAD(BaseEstimator):
         Returns
         -------
         np.ndarray
-            np.ndarray of shape (n_samples, 1)
+            np.ndarray of shape (n_samples, )
             Anomaly labels
-        '''
+        """
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
 
         return self.predict_anomaly_scores(X) > self.b
 
     def predict_anomaly_scores(self, X: np.ndarray):
-        '''
+        """
         Predict anomaly scores.
 
         The higher the score the more anomalous the point.
@@ -767,10 +782,10 @@ class DWTMLEAD(BaseEstimator):
         Returns
         -------
         np.ndarray
-            np.ndarray of shape (n_samples, 1)
+            np.ndarray of shape (n_samples, )
             Index of nearest neighbor in training data for each sample from X
 
-        '''
+        """
         check_if_fitted(self)
         validate_data_3d(X)
         check_one_sample(X)
@@ -792,6 +807,7 @@ class DWTMLEAD(BaseEstimator):
         l_scores = []
         for a, w, l in list(zip(A, ws[1:], ls[1:])) + list(zip(D, ws, ls)):
             a_wl = sliding_window_sequences(data=a, window_size=w)
+            a_wl = conv_3d_to_2d(a_wl)
             est = EmpiricalCovariance(assume_centered=False).fit(a_wl)
             p = np.zeros((a_wl.shape[0],))
             for i, sample in enumerate(a_wl):
@@ -828,7 +844,7 @@ class DWTMLEAD(BaseEstimator):
 
 
 class RandomForest(BaseEstimator):
-    '''
+    """
     A random forest regressor.
     A random forest is a meta estimator that fits a number of classifying
     decision trees on various sub-samples of the dataset and uses averaging
@@ -949,7 +965,7 @@ class RandomForest(BaseEstimator):
         - If float, then draw `max_samples * X.shape[0]` samples. Thus,
           `max_samples` should be in the interval `(0.0, 1.0]`.
 
-    '''
+    """
 
     def __init__(
         self,
@@ -1010,12 +1026,12 @@ class RandomForest(BaseEstimator):
         )
 
     def fit(self, X: np.ndarray, y: np.ndarray):
-        '''
+        """
         Fit the random forest estimator.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Training data.
         y : np.ndarray of shape (n_samples, n_outputs) or (n_samples,)
             The target values
@@ -1023,22 +1039,23 @@ class RandomForest(BaseEstimator):
         -------
         self
             Fitted estimator.
-        '''
+        """
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
-        validate_data_2d(X)
+        validate_data_3d(X)
+        X_ = conv_3d_to_2d(X)
         self.fitted = True
-        self.model.fit(X, y)
-        y_pred = self.model.predict(X)
+        self.model.fit(X_, y)
+        y_pred = self.model.predict(X_)
         self.threshold = np.nanmax(np.abs(y_pred - y))
         return self
 
     def predict(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
-        '''
+        """
         Predict anomaly labels.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Data
         y : np.ndarray of shape (n_samples, n_outputs) or (n_samples,)
             Observed values
@@ -1048,19 +1065,19 @@ class RandomForest(BaseEstimator):
         np.ndarray
             np.ndarray of shape (n_samples, 1)
             Anomaly labels
-        '''
+        """
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
         check_if_fitted(self)
         scores = self.predict_anomaly_scores(X, y)
         return scores > self.threshold
 
     def predict_anomaly_scores(self, X: np.ndarray, y: np.ndarray):
-        '''
+        """
         Predict anomaly scores.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Data
         y : np.ndarray of shape (n_samples, n_outputs) or (n_samples,)
             Observed values
@@ -1070,15 +1087,16 @@ class RandomForest(BaseEstimator):
         np.ndarray, np.ndarray
             np.ndarray of shape (n_samples,)
             Absolute difference between predicted and observed values.
-        '''
+        """
         check_if_fitted(self)
-        validate_data_2d(X)
-        y_pred = self.model.predict(X)
+        validate_data_3d(X)
+        X_ = conv_3d_to_2d(X)
+        y_pred = self.model.predict(X_)
         return np.abs(y_pred - y)
 
 
 class OCSVM(BaseEstimator):
-    '''
+    """
     Unsupervised Outlier Detection.
     Estimate the support of a high-dimensional distribution.
     The implementation is based on libsvm.
@@ -1120,7 +1138,7 @@ class OCSVM(BaseEstimator):
         properly in a multithreaded context.
     max_iter : int, default=-1
         Hard limit on iterations within solver, or -1 for no limit.
-    '''
+    """
 
     def __init__(
         self,
@@ -1160,53 +1178,56 @@ class OCSVM(BaseEstimator):
         )
 
     def fit(self, X: np.ndarray, y=None):
-        '''
+        """
         Fit the OCSVM estimator.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Training data.
         y : ignored
         Returns
         -------
         self
             Fitted estimator.
-        '''
+        """
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
-        validate_data_2d(X)
+        validate_data_3d(X)
         self.fitted = True
-        self.model.fit(X, y)
+        X_ = conv_3d_to_2d(X)
+        self.model.fit(X_, y)
         return self
 
     def predict(self, X: np.ndarray):
-        '''
+        """
         Predict anomaly labels.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Data
 
         Returns
         -------
         np.ndarray
-            np.ndarray of shape (n_samples, 1)
+            np.ndarray of shape (n_samples, )
             Anomaly labels
-        '''
+        """
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
         check_if_fitted(self)
-        raise NotImplementedError()
+        validate_data_3d(X)
+        X_ = conv_3d_to_2d(X)
+        return self.model.predict(X_) == -1
         # scores = self.predict_anomaly_scores(X, y)
         # return scores > self.threshold
 
     def predict_anomaly_scores(self, X: np.ndarray):
-        '''
+        """
         Predict anomaly scores.
 
         Parameters
         ----------
-        X : np.ndarray of shape (n_samples, n_timepoints)
+        X : np.ndarray of shape (n_samples, n_timepoints, n_features)
             Data
 
         Returns
@@ -1214,17 +1235,40 @@ class OCSVM(BaseEstimator):
         np.ndarray, np.ndarray
             np.ndarray of shape (n_samples,)
             Absolute difference between predicted and observed values.
-        '''
+        """
         check_if_fitted(self)
-        validate_data_2d(X)
-        return -self.model.score_samples(X)
+        validate_data_3d(X)
+        X_ = conv_3d_to_2d(X)
+        return -self.model.score_samples(X_)
 
 
 class LSTM_AE_Det(BaseEstimator):
-    '''
+    """
+    Wrapper class for LSTM encoder decoder network.
+    Based on paper:
+        LSTM-based Encoder-Decoder for Multi-sensor Anomaly Detection
+        https://arxiv.org/abs/1607.00148
+
     Parameters
     ----------
-    '''
+    n_feats : int, default 1
+        Number of features in the input for timeseries of a shape
+        (n_samples, n_timepoints, n_features)
+    hidden_size : int, default 8
+        Size of hidden state vector
+    n_layers : int, default 1
+        Number of stacked LSTM cells
+    dropout : tuple[float, float], default (0.1, 0.1)
+        Tuple of floats used for encoder and decoder layers
+    lr : float, default 1r-3
+        Learning rate
+    batch_size : int, default 256
+        Number of samples in one batch
+    epochs : int
+        Number of trainging epochs
+    callbacks : List[Callback]
+        List of callbacks
+    """
 
     def __init__(
         self,
@@ -1254,8 +1298,26 @@ class LSTM_AE_Det(BaseEstimator):
         self.callbacks = [] if not callbacks else callbacks
 
     def fit(self, X: np.ndarray, y=None):
+        """
+        Fit method of the network.
+        Contains training loop and estimation of covariance for
+        anomaly scoring.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Training data of shape (n_samples, n_timepoints, n_features)
+        y : np.ndarray, optional
+            Ignored.
+
+        Returns
+        -------
+        self
+        """
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_3d(X)
+
+        # Prepare data
         X_tensor = torch.from_numpy(X)
         X_train, X_valid = train_test_split(
             X_tensor, test_size=0.3, shuffle=False
@@ -1268,6 +1330,7 @@ class LSTM_AE_Det(BaseEstimator):
             X_valid.to(torch.float32), batch_size=self.batch_size * 4
         )
 
+        # Initialize model on supported device
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model.to(device)
         self.model.train()
@@ -1278,6 +1341,7 @@ class LSTM_AE_Det(BaseEstimator):
         l = nn.L1Loss()
         scaler = GradScaler()
 
+        # Training loop
         for e in range(self.epochs):
             t_running_loss = 0.0
             v_running_loss = 0.0
@@ -1310,6 +1374,7 @@ class LSTM_AE_Det(BaseEstimator):
                 v_running_loss / len(val_loader),
             )
 
+        # Empirical covariance for anomaly scoring
         err_vecs = []
         self.model.eval()
         for d in val_loader:
@@ -1324,19 +1389,46 @@ class LSTM_AE_Det(BaseEstimator):
         return self
 
     def predict(self, X: np.ndarray):
+        """
+        Predict method
+        Not implemented
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Raises
+        ------
+        NotImplementedError
+            Not implemented
+        """
         _LOGGER.info(f'Predicting {self.__class__.__name__}')
         raise NotImplementedError()
 
     def predict_anomaly_scores(self, X: np.ndarray):
+        """
+        Predict anomaly scores
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Returns
+        -------
+        np.ndarray of shape (n_samples, )
+            Mahanalobis distance to estimated covariance
+        """
         validate_data_3d(X)
-        self.model.eval()
         X_tensor = torch.from_numpy(X)
         eval_loader = DataLoader(
             X_tensor.to(torch.float32), batch_size=self.batch_size * 8
         )
+
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model.to(device)
-
+        self.model.eval()
         errs = []
         for d in eval_loader:
             d.to(device)

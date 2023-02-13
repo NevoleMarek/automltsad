@@ -34,7 +34,7 @@ def check_if(obj, attr, message):
 
 
 def check_if_fitted(obj):
-    check_if(obj, '_fitted', f'Fit the object {obj.__class__.__name__}')
+    check_if(obj, 'fitted', f'Fit the object {obj.__class__.__name__}')
 
 
 def check_one_sample(X: np.ndarray):

@@ -179,7 +179,7 @@ def mass_volume_curve(
     # volume of hypercube enclosing the data
     volume = np.prod(X_max - X_min)
 
-    n_samples, n_features = X.shape
+    n_samples, n_features, *_ = X.shape
     mc_samples = np.random.uniform(
         X_min, X_max, (mc_samples_count, n_features)
     )
@@ -373,7 +373,7 @@ def excess_mass_curve(
     volume = np.prod(X_max - X_min)
 
     # Monte Carlo sampling
-    n_samples, n_features = X.shape
+    n_samples, n_features, *_ = X.shape
     mc_samples = np.random.uniform(
         X_min, X_max, (mc_samples_count, n_features)
     )

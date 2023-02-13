@@ -23,11 +23,12 @@ def sliding_window_sequences(
     Returns
     -------
     np.ndarray
-        2D array with shape (n_samples * (n_timepoints - window_size + 1), window_size * n_features)
+        3D array with shape (n_samples * (n_timepoints - window_size + 1),
+        window_size, n_features)
     """
     n_samples, n_timepoints, n_features = data.shape
     output = sliding_window_view(data, window_shape=window_size, axis=1)
-    output = output.reshape(-1, window_size * n_features)
+    output = output.reshape(-1, window_size, n_features)
     _LOGGER.info(f'Rolling window op: Shape of output {output.shape}')
     return output
 
@@ -86,3 +87,17 @@ def reduce_window_scores(scores: np.ndarray, window_size: int) -> np.ndarray:
         unwindowed_scores[:, w] = np.roll(unwindowed_scores[:, 0], w)
 
     return np.nanmean(unwindowed_scores, axis=1)
+
+
+def conv_3d_to_2d(X: np.ndarray) -> np.ndarray:
+    """Helper function to convert array from time series format in shape
+    (n_samples, n_timepoints, n_features) to shape
+    (n_samples, n_timepoints*n_features)
+
+    Parameters
+    ----------
+    X : np.ndarray of shape (n_samples, n_timepoints, n_features)
+        Data
+    """
+    _, _t, _f = X.shape
+    return X.reshape(-1, _t * _f)
