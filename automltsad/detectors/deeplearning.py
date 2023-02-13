@@ -184,6 +184,7 @@ class VAE(nn.Module):
         return x
 
 
+# Copyright (c) 2018 Chair of Data Mining at Hasso Plattner Institute
 class LSTM_AE(nn.Module):
     def __init__(self, n_feats, hidden_size, n_layers=1, dropout=(0.1, 0.1)):
         super().__init__()
