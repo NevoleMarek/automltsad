@@ -4,6 +4,7 @@
 # https://github.com/imperial-qore/TranAD
 import dgl
 import numpy as np
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -107,16 +108,17 @@ class TranAD(nn.Module):
 
 # Copyright (c) 2023, Marek Nevole
 # All rights reserved.
-class VAE(nn.Module):
+class VAE(pl.LightningModule):
     def __init__(
         self,
         window_size,
         encoder_hidden=[128, 64, 32],
         decoder_hidden=[32, 64, 128],
         latent_dim=16,
+        learning_rate=1e-3,
     ):
-        super(VAE, self).__init__()
-        self.name = 'VAE'
+        super().__init__()
+        self.learning_rate = learning_rate
 
         self.window_size = window_size
         self.encoder_hidden = encoder_hidden
@@ -131,63 +133,80 @@ class VAE(nn.Module):
         self.N = torch.distributions.Normal(0, 1)
 
     def _build_encoder(self):
+        in_features = self.window_size
         self.encoder_layers = []
-        self.encoder_layers.append(
-            nn.Sequential(
-                nn.Linear(self.window_size, self.encoder_hidden[0]), nn.ReLU()
-            )
-        )
-
-        self.encoder_layers.extend(
-            [
+        for h_dim in self.encoder_hidden:
+            self.encoder_layers.append(
                 nn.Sequential(
-                    nn.Linear(
-                        self.encoder_hidden[i], self.encoder_hidden[i + 1]
-                    ),
-                    nn.ReLU(),
+                    nn.Linear(in_features, h_dim, bias=True),
+                    nn.BatchNorm1d(h_dim),
+                    nn.LeakyReLU(),
                 )
-                for i in range(len(self.encoder_hidden) - 1)
-            ]
-        )
+            )
+            in_features = h_dim
         return nn.Sequential(*self.encoder_layers)
 
     def _build_decoder(self):
         self.decoder_layers = []
-        self.decoder_layers.append(
-            nn.Sequential(
-                nn.Linear(self.latent_dim, self.decoder_hidden[0]), nn.ReLU()
-            )
-        )
-        self.decoder_layers.extend(
-            [
+        in_features = self.latent_dim
+        for d_dim in self.decoder_hidden:
+            self.decoder_layers.append(
                 nn.Sequential(
-                    nn.Linear(
-                        self.decoder_hidden[i], self.decoder_hidden[i + 1]
-                    ),
-                    nn.ReLU(),
+                    nn.Linear(in_features, d_dim, bias=True),
+                    nn.BatchNorm1d(d_dim),
+                    nn.LeakyReLU(),
                 )
-                for i in range(len(self.decoder_hidden) - 1)
-            ]
-        )
+            )
+            in_features = d_dim
 
-        self.decoder_layers.append(
-            nn.Linear(self.decoder_hidden[-1], self.window_size)
-        )
+        self.decoder_layers.append(nn.Linear(in_features, self.window_size))
         return nn.Sequential(*self.decoder_layers)
 
-    def forward(self, x):
-        x = self.encoder(x)
-        mu, sigma = self.mu(x), torch.exp(self.sigma(x))
+    def training_step(self, batch, batch_idx):
+        x = batch
+        z = self.encoder(x)
+        mu, sigma = self.mu(z), torch.exp(self.sigma(z))
         z = mu + sigma * self.N.sample(mu.shape)
-        self.kl = (sigma**2 + mu**2 - torch.log(sigma) - 1 / 2).sum()
-        x = self.decoder(z)
-        return x
+        self.kl = ((sigma**2 + mu**2) / 2 - torch.log(sigma) - 1 / 2).sum()
+        x_hat = self.decoder(z)
+        loss = F.mse_loss(x_hat, x) + 0.0001 * self.kl
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x = batch
+        z = self.encoder(x)
+        mu, sigma = self.mu(z), torch.exp(self.sigma(z))
+        z = mu + sigma * self.N.sample(mu.shape)
+        self.kl = ((sigma**2 + mu**2) / 2 - torch.log(sigma) - 1 / 2).sum()
+        x_hat = self.decoder(z)
+        loss = F.mse_loss(x_hat, x)
+        self.log('val_loss', loss, prog_bar=True)
+        return loss
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        out = self(batch)
+        err = ((out - batch) ** 2).sum(dim=1)
+        return err
+
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(), lr=self.learning_rate)
+        return optimizer
 
 
 # Copyright (c) 2018 Chair of Data Mining at Hasso Plattner Institute
-class LSTM_AE(nn.Module):
-    def __init__(self, n_feats, hidden_size, n_layers=1, dropout=(0.1, 0.1)):
+class LSTM_AE(pl.LightningModule):
+    def __init__(
+        self,
+        n_feats,
+        hidden_size,
+        n_layers=1,
+        dropout=(0.1, 0.1),
+        learning_rate=1e-3,
+    ):
         super().__init__()
+        self.learning_rate = learning_rate
+
         self.n_feats = n_feats
         self.hidden_size = hidden_size
         self.n_layers = n_layers
@@ -208,7 +227,8 @@ class LSTM_AE(nn.Module):
         )
         self.out = nn.Linear(self.hidden_size, self.n_feats)
 
-    def forward(self, x):
+    def training_step(self, batch, batch_idx):
+        x = batch
         enc_state = (
             torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
             torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
@@ -226,4 +246,36 @@ class LSTM_AE(nn.Module):
             else:
                 _, dec_state = self.dec(out[:, i].unsqueeze(1), dec_state)
 
-        return out
+        loss = F.l1_loss(out, x)
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x = batch
+        enc_state = (
+            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
+            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
+        )
+        _, enc_state = self.enc(x, enc_state)
+
+        dec_state = enc_state
+
+        out = torch.zeros_like(x)
+        for i in reversed(range(x.shape[1])):
+            out[:, i, :] = self.out(dec_state[0][-1])
+
+            if self.training:
+                _, dec_state = self.dec(x[:, i].unsqueeze(1), dec_state)
+            else:
+                _, dec_state = self.dec(out[:, i].unsqueeze(1), dec_state)
+
+        loss = F.l1_loss(out, x)
+        self.log('val_loss', loss, prog_bar=True)
+        return loss
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        return self(batch)
+
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(), lr=self.learning_rate)
+        return optimizer

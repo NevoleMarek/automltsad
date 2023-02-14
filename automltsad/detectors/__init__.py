@@ -5,7 +5,9 @@ from automltsad.detectors.detectors import (
     LOF,
     OCSVM,
     IsolationForestAD,
+    LSTM_AE_Det,
     RandomForest,
     TrivialDetector,
+    VAE_Det,
     WindowingDetector,
 )

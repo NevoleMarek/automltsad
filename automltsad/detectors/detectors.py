@@ -1,23 +1,25 @@
 import logging
 
 import numpy as np
+import pytorch_lightning as pl
 import pywt
 import torch
-import torch.nn as nn
-import torch.optim as optim
+from pytorch_lightning.callbacks import (
+    BatchSizeFinder,
+    EarlyStopping,
+    LearningRateFinder,
+    ModelCheckpoint,
+    RichProgressBar,
+)
 from sklearn.base import BaseEstimator
 from sklearn.covariance import EmpiricalCovariance
 from sklearn.ensemble import IsolationForest, RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
 from sklearn.svm import OneClassSVM
-from torch.cuda.amp import GradScaler
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
-from automltsad.detectors.callback import CheckpointModel, EarlyStopping
 from automltsad.detectors.deeplearning import GDN, LSTM_AE, VAE, TranAD
-from automltsad.detectors.utils import print_progress
 from automltsad.transform import MeanVarianceScaler
 from automltsad.utils import (
     conv_3d_to_2d,
@@ -1264,10 +1266,8 @@ class LSTM_AE_Det(BaseEstimator):
         Learning rate
     batch_size : int, default 256
         Number of samples in one batch
-    epochs : int
-        Number of trainging epochs
-    callbacks : List[Callback]
-        List of callbacks
+    trainer_config : dict
+        Kwargs for pl.Trainer when fitting the model
     """
 
     def __init__(
@@ -1278,24 +1278,24 @@ class LSTM_AE_Det(BaseEstimator):
         dropout=(0.1, 0.1),
         lr=1e-3,
         batch_size=256,
-        epochs=10,
-        callbacks=None,
+        trainer_config=None,
     ) -> None:
         self.fitted = False
+        self.model_name = 'LSTM_AE'
         self.n_feats = n_feats
         self.hidden_size = hidden_size
         self.n_layers = n_layers
         self.dropout = dropout
         self.lr = lr
         self.batch_size = batch_size
-        self.epochs = epochs
         self.model = LSTM_AE(
             n_feats=self.n_feats,
             hidden_size=self.hidden_size,
             n_layers=self.n_layers,
             dropout=self.dropout,
+            learning_rate=self.lr,
         )
-        self.callbacks = [] if not callbacks else callbacks
+        self.trainer_config = trainer_config
 
     def fit(self, X: np.ndarray, y=None):
         """
@@ -1330,62 +1330,15 @@ class LSTM_AE_Det(BaseEstimator):
             X_valid.to(torch.float32), batch_size=self.batch_size * 4
         )
 
-        # Initialize model on supported device
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.model.to(device)
-        self.model.train()
-
-        optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
-        optimizer.zero_grad(set_to_none=True)
-
-        l = nn.L1Loss()
-        scaler = GradScaler()
-
-        # Training loop
-        for e in range(self.epochs):
-            t_running_loss = 0.0
-            v_running_loss = 0.0
-            self.model.train()
-            for i, d in enumerate(tqdm(train_loader)):
-                d.to(device)
-
-                with torch.autocast(device):
-                    out = self.model(d)
-                    loss = l(out, d)
-
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad(set_to_none=True)
-
-                t_running_loss += loss
-            self.model.eval()
-            for d in val_loader:
-                d.to(device)
-                with torch.no_grad():
-                    out = self.model(d)
-                    loss = l(out, d)
-
-                v_running_loss += loss
-            print_progress(
-                e,
-                self.epochs,
-                t_running_loss / len(train_loader),
-                v_running_loss / len(val_loader),
-            )
+        trainer = pl.Trainer(**self.trainer_config)
+        trainer.fit(self.model, train_loader, val_loader)
 
         # Empirical covariance for anomaly scoring
-        err_vecs = []
-        self.model.eval()
-        for d in val_loader:
-            d.to(device)
-            with torch.no_grad():
-                out = self.model(d)
-                loss = (out - d).abs()
-            err_vecs.append(loss)
-        err_vecs = torch.cat(err_vecs, dim=0).squeeze().detach().numpy()
+        out = pl.Trainer().predict(self.model, val_loader)
+        out = torch.cat(out, dim=0)
+        errs = (out - X_valid).abs()
+        err_vecs = errs.squeeze().detach().numpy()
         self.est = EmpiricalCovariance(assume_centered=False).fit(err_vecs)
-
         return self
 
     def predict(self, X: np.ndarray):
@@ -1426,16 +1379,140 @@ class LSTM_AE_Det(BaseEstimator):
             X_tensor.to(torch.float32), batch_size=self.batch_size * 8
         )
 
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.model.to(device)
-        self.model.eval()
-        errs = []
-        for d in eval_loader:
-            d.to(device)
-            with torch.no_grad():
-                out = self.model(d)
-                loss = (out - d).abs()
-            errs.append(loss)
-        errs = torch.cat(errs, dim=0).squeeze().detach().numpy()
+        trainer = pl.Trainer()
+        out = trainer.predict(self.model, eval_loader)
+        out = torch.cat(out, dim=0)
+        errs = (out - X_tensor).abs()
+        errs = errs.squeeze().detach().numpy()
         p = self.est.mahalanobis(errs)
         return p
+
+
+class VAE_Det(BaseEstimator):
+    """
+    Wrapper class for Variational autoencoder network.
+    Based on paper:
+        Auto-Encoding Variational Bayes, Kingma, Welling
+        http://arxiv.org/abs/1312.6114
+
+    Parameters
+    ----------
+    window_size : int
+        Size of input
+    encoder_hidden : List[int]
+        List of integers where each integer is size of hidden layer in encoder
+    decoder_hidden : List[int]
+        List of integers where each integer is size of hidden layer in decoder
+    latent_dim : int
+        Size of latent linear layer
+    lr : float, default 1r-3
+        Learning rate
+    batch_size : int, default 256
+        Number of samples in one batch
+    trainer_config : dict
+        Kwargs for pl.Trainer class when fitting the model
+    """
+
+    def __init__(
+        self,
+        window_size,
+        encoder_hidden=[128, 64, 32],
+        decoder_hidden=[32, 64, 128],
+        latent_dim=16,
+        lr=1e-3,
+        batch_size=256,
+        trainer_config=None,
+    ) -> None:
+        self.fitted = False
+        self.model_name = 'VAE'
+        self.window_size = window_size
+        self.encoder_hidden = encoder_hidden
+        self.decoder_hidden = decoder_hidden
+        self.latent_dim = latent_dim
+        self.lr = lr
+        self.batch_size = batch_size
+        self.model = VAE(
+            window_size=self.window_size,
+            encoder_hidden=self.encoder_hidden,
+            decoder_hidden=self.decoder_hidden,
+            latent_dim=self.latent_dim,
+            learning_rate=self.lr,
+        )
+        self.trainer_config = trainer_config
+
+    def fit(self, X: np.ndarray, y=None):
+        """
+        Fit method of the network.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Training data of shape (n_samples, n_timepoints, n_features)
+        y : np.ndarray, optional
+            Ignored.
+
+        Returns
+        -------
+        self
+        """
+        _LOGGER.info(f'Fitting {self.__class__.__name__}')
+        validate_data_3d(X)
+
+        # Prepare data
+        X_tensor = torch.from_numpy(X.squeeze())
+        X_train, X_valid = train_test_split(
+            X_tensor, test_size=0.3, shuffle=False
+        )
+
+        train_loader = DataLoader(
+            X_train.to(torch.float32), batch_size=self.batch_size
+        )
+        val_loader = DataLoader(
+            X_valid.to(torch.float32), batch_size=self.batch_size * 4
+        )
+
+        trainer = pl.Trainer(**self.trainer_config)
+        trainer.fit(self.model, train_loader, val_loader)
+        return self
+
+    def predict(self, X: np.ndarray):
+        """
+        Predict method
+        Not implemented
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Raises
+        ------
+        NotImplementedError
+            Not implemented
+        """
+        _LOGGER.info(f'Predicting {self.__class__.__name__}')
+        raise NotImplementedError()
+
+    def predict_anomaly_scores(self, X: np.ndarray):
+        """
+        Predict anomaly scores
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Returns
+        -------
+        np.ndarray of shape (n_samples, )
+            Reconstruction error as anomaly score
+        """
+        validate_data_3d(X)
+        X_tensor = torch.from_numpy(X.squeeze())
+        eval_loader = DataLoader(
+            X_tensor.to(torch.float32), batch_size=self.batch_size * 8
+        )
+
+        trainer = pl.Trainer()
+        errs = trainer.predict(self.model, eval_loader)
+        return torch.cat(errs, dim=0).squeeze().detach().numpy()
