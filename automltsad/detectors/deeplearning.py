@@ -22,88 +22,192 @@ torch.manual_seed(1)
 
 
 ## GDN Model (AAAI 21)
-class GDN(nn.Module):
-    def __init__(self, feats):
-        super(GDN, self).__init__()
-        self.name = 'GDN'
-        self.lr = 0.0001
-        self.n_feats = feats
-        self.n_window = 5
-        self.n_hidden = 16
+class GDN(pl.LightningModule):
+    def __init__(self, n_feats, window_size, n_hidden, learning_rate):
+        super().__init__()
+        self.learning_rate = learning_rate
+        self.n_feats = n_feats
+        self.n_window = window_size
+        self.n_hidden = n_hidden
         self.n = self.n_window * self.n_feats
-        src_ids = np.repeat(np.array(list(range(feats))), feats)
-        dst_ids = np.array(list(range(feats)) * feats)
+        src_ids = np.repeat(np.array(list(range(self.n_feats))), self.n_feats)
+        dst_ids = np.array(list(range(self.n_feats)) * self.n_feats)
         self.g = dgl.graph((torch.tensor(src_ids), torch.tensor(dst_ids)))
         self.g = dgl.add_self_loop(self.g)
-        self.feature_gat = GATConv(1, 1, feats)
-        self.attention = nn.Sequential(
-            nn.Linear(self.n, self.n_hidden),
-            nn.LeakyReLU(True),
-            nn.Linear(self.n_hidden, self.n_hidden),
-            nn.LeakyReLU(True),
-            nn.Linear(self.n_hidden, self.n_window),
-            nn.Softmax(dim=0),
-        )
+        self.feature_gat = GATConv(1, 1, self.n_feats)
+
         self.fcn = nn.Sequential(
             nn.Linear(self.n_feats, self.n_hidden),
-            nn.LeakyReLU(True),
-            nn.Linear(self.n_hidden, self.n_window),
-            nn.Sigmoid(),
+            nn.LeakyReLU(),
+            nn.Linear(self.n_hidden, self.n_feats),
         )
 
-    def forward(self, data):
-        # Bahdanau style attention
-        att_score = self.attention(data).view(self.n_window, 1)
-        data = data.view(self.n_window, self.n_feats)
-        data_r = torch.matmul(data.permute(1, 0), att_score)
-        # GAT convolution on complete graph
-        feat_r = self.feature_gat(self.g, data_r)
-        feat_r = feat_r.view(self.n_feats, self.n_feats)
-        # Pass through a FCN
-        x = self.fcn(feat_r)
-        return x.view(-1)
+    def forward(self, x):
+        n_s, n_t, n_f = x.shape
+        feat_r = self.feature_gat(self.g, x.view(n_f, n_s, n_t, 1))
+        y_hat = self.fcn(feat_r).squeeze()[:, -1].view(-1, 1)
+        return y_hat
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        n_s, n_t, n_f = x.shape
+        feat_r = self.feature_gat(self.g, x.view(n_f, n_s, n_t, 1))
+        y_hat = self.fcn(feat_r).squeeze()[:, -1]
+        loss = F.mse_loss(y_hat, y)
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        n_s, n_t, n_f = x.shape
+        feat_r = self.feature_gat(self.g, x.view(n_f, n_s, n_t, 1))
+        y_hat = self.fcn(feat_r).squeeze()[:, -1]
+        loss = F.mse_loss(y_hat, y)
+        self.log('val_loss', loss, prog_bar=True)
+        return loss
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        x, y = batch
+        y_hat = self(x)
+        return F.mse_loss(y, y_hat, reduction='none')
+
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(), lr=self.learning_rate)
+        return optimizer
 
 
 # Proposed Model + Self Conditioning + Adversarial + MAML (VLDB 22)
-class TranAD(nn.Module):
-    def __init__(self, feats):
-        super(TranAD, self).__init__()
-        self.name = 'TranAD'
-        self.batch = 128
-        self.n_feats = feats
-        self.n_window = 10
+class TranAD(pl.LightningModule):
+    def __init__(self, n_feats, learning_rate, window_size):
+        super().__init__()
+        self.learning_rate = learning_rate
+        self.n_feats = n_feats
+        self.n_window = window_size
         self.n = self.n_feats * self.n_window
-        self.pos_encoder = PositionalEncoding(2 * feats, 0.1, self.n_window)
-        encoder_layers = TransformerEncoderLayer(
-            d_model=2 * feats, nhead=feats, dim_feedforward=16, dropout=0.1
+        self.pos_encoder = PositionalEncoding(
+            2 * self.n_feats, 0.1, self.n_window
         )
-        self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
-        decoder_layers1 = TransformerDecoderLayer(
-            d_model=2 * feats, nhead=feats, dim_feedforward=16, dropout=0.1
+        encoder_layers = nn.TransformerEncoderLayer(
+            d_model=2 * self.n_feats,
+            nhead=self.n_feats,
+            dim_feedforward=16,
+            dropout=0.1,
         )
-        self.transformer_decoder1 = TransformerDecoder(decoder_layers1, 1)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, 1)
+        decoder_layers1 = nn.TransformerDecoderLayer(
+            d_model=2 * self.n_feats,
+            nhead=self.n_feats,
+            dim_feedforward=16,
+            dropout=0.1,
+        )
+        self.transformer_decoder1 = nn.TransformerDecoder(decoder_layers1, 1)
         decoder_layers2 = TransformerDecoderLayer(
-            d_model=2 * feats, nhead=feats, dim_feedforward=16, dropout=0.1
+            d_model=2 * self.n_feats,
+            nhead=self.n_feats,
+            dim_feedforward=16,
+            dropout=0.1,
         )
-        self.transformer_decoder2 = TransformerDecoder(decoder_layers2, 1)
-        self.fcn = nn.Sequential(nn.Linear(2 * feats, feats), nn.Sigmoid())
+        self.transformer_decoder2 = nn.TransformerDecoder(decoder_layers2, 1)
+        self.fcn = nn.Sequential(nn.Linear(2 * self.n_feats, self.n_feats))
+        self.sqrtn_feats = np.sqrt(self.n_feats)
 
     def encode(self, src, c, tgt):
         src = torch.cat((src, c), dim=2)
-        src = src * np.sqrt(self.n_feats)
+        src = src * self.sqrtn_feats
         src = self.pos_encoder(src)
         memory = self.transformer_encoder(src)
         tgt = tgt.repeat(1, 1, 2)
         return tgt, memory
 
-    def forward(self, src, tgt):
-        # Phase 1 - Without anomaly scores
-        c = torch.zeros_like(src)
-        x1 = self.fcn(self.transformer_decoder1(*self.encode(src, c, tgt)))
-        # Phase 2 - With anomaly scores
-        c = (x1 - src) ** 2
-        x2 = self.fcn(self.transformer_decoder2(*self.encode(src, c, tgt)))
-        return x1, x2
+    def forward(self, batch):
+        src, tgt = batch
+        src = src.permute(1, 0, 2)
+        tgt = tgt.permute(1, 0, 2)
+        n = self.current_epoch + 1
+
+        # Phase 1
+        fcs = torch.zeros_like(src)
+        O_1 = self.fcn(self.transformer_decoder1(*self.encode(src, fcs, tgt)))
+        O_2 = self.fcn(self.transformer_decoder2(*self.encode(src, fcs, tgt)))
+
+        # Phase 2
+        fcs = (O_1 - src) ** 2
+        O_2_hat = self.fcn(
+            self.transformer_decoder2(*self.encode(src, fcs, tgt))
+        )
+
+        return O_1, O_2, O_2_hat
+
+    def training_step(self, batch, batch_idx):
+        src, tgt = batch
+        src = src.permute(1, 0, 2)
+        tgt = tgt.permute(1, 0, 2)
+        n = self.current_epoch + 1
+
+        # Phase 1
+        fcs = torch.zeros_like(src)
+        O_1 = self.fcn(self.transformer_decoder1(*self.encode(src, fcs, tgt)))
+        O_2 = self.fcn(self.transformer_decoder2(*self.encode(src, fcs, tgt)))
+
+        # Phase 2
+        fcs = (O_1 - src) ** 2
+        O_2_hat = self.fcn(
+            self.transformer_decoder2(*self.encode(src, fcs, tgt))
+        )
+
+        # Losses
+        l_1 = 1.01**-n * F.mse_loss(O_1, src) + (
+            1 - 1.01**-n
+        ) * F.mse_loss(O_2_hat, src)
+        l_2 = 1.01**-n * F.mse_loss(O_2, src) - (
+            1 - 1.01**-n
+        ) * F.mse_loss(O_2_hat, src)
+        loss = l_1 + l_2
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        src, tgt = batch
+        src = src.permute(1, 0, 2)
+        tgt = tgt.permute(1, 0, 2)
+        n = self.current_epoch + 1
+
+        # Phase 1
+        fcs = torch.zeros_like(src)
+        O_1 = self.fcn(self.transformer_decoder1(*self.encode(src, fcs, tgt)))
+        O_2 = self.fcn(self.transformer_decoder2(*self.encode(src, fcs, tgt)))
+
+        # Phase 2
+        fcs = (O_1 - src) ** 2
+        O_2_hat = self.fcn(
+            self.transformer_decoder2(*self.encode(src, fcs, tgt))
+        )
+
+        # Losses
+        l_1 = 1.01**-n * F.mse_loss(O_1, src) + (
+            1 - 1.01**-n
+        ) * F.mse_loss(O_2_hat, src)
+        l_2 = 1.01**-n * F.mse_loss(O_2, src) - (
+            1 - 1.01**-n
+        ) * F.mse_loss(O_2_hat, src)
+        loss = l_1 + l_2
+        self.log('val_loss', loss, prog_bar=True)
+        return loss
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        O_1, O_2, O_2_hat = self(batch)
+        batch = batch[0].permute(1, 0, 2)
+        out = 1 / 2 * F.mse_loss(
+            O_1, batch, reduction='none'
+        ) + 1 / 2 * F.mse_loss(O_2_hat, batch, reduction='none')
+        return out.mean(dim=0)
+
+    def backward(self, loss, *args, **kwargs):
+        loss.backward(retain_graph=True)
+
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(), lr=self.learning_rate)
+        return optimizer
 
 
 # Copyright (c) 2023, Marek Nevole
@@ -161,6 +265,15 @@ class VAE(pl.LightningModule):
 
         self.decoder_layers.append(nn.Linear(in_features, self.window_size))
         return nn.Sequential(*self.decoder_layers)
+
+    def forward(self, batch):
+        x = batch
+        z = self.encoder(x)
+        mu, sigma = self.mu(z), torch.exp(self.sigma(z))
+        z = mu + sigma * self.N.sample(mu.shape)
+        self.kl = ((sigma**2 + mu**2) / 2 - torch.log(sigma) - 1 / 2).sum()
+        x_hat = self.decoder(z)
+        return x_hat
 
     def training_step(self, batch, batch_idx):
         x = batch
@@ -226,6 +339,26 @@ class LSTM_AE(pl.LightningModule):
             batch_first=True,
         )
         self.out = nn.Linear(self.hidden_size, self.n_feats)
+
+    def forward(self, batch):
+        x = batch
+        enc_state = (
+            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
+            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
+        )
+        _, enc_state = self.enc(x, enc_state)
+
+        dec_state = enc_state
+
+        out = torch.zeros_like(x)
+        for i in reversed(range(x.shape[1])):
+            out[:, i, :] = self.out(dec_state[0][-1])
+
+            if self.training:
+                _, dec_state = self.dec(x[:, i].unsqueeze(1), dec_state)
+            else:
+                _, dec_state = self.dec(out[:, i].unsqueeze(1), dec_state)
+        return out
 
     def training_step(self, batch, batch_idx):
         x = batch

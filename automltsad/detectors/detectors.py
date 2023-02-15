@@ -17,7 +17,7 @@ from sklearn.ensemble import IsolationForest, RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
 from sklearn.svm import OneClassSVM
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 
 from automltsad.detectors.deeplearning import GDN, LSTM_AE, VAE, TranAD
 from automltsad.transform import MeanVarianceScaler
@@ -1458,8 +1458,8 @@ class VAE_Det(BaseEstimator):
         _LOGGER.info(f'Fitting {self.__class__.__name__}')
         validate_data_3d(X)
 
-        # Prepare data
-        X_tensor = torch.from_numpy(X.squeeze())
+        n_s, n_t, n_f = X.shape
+        X_tensor = torch.from_numpy(X).view(n_s, n_t * n_f)
         X_train, X_valid = train_test_split(
             X_tensor, test_size=0.3, shuffle=False
         )
@@ -1508,11 +1508,269 @@ class VAE_Det(BaseEstimator):
             Reconstruction error as anomaly score
         """
         validate_data_3d(X)
-        X_tensor = torch.from_numpy(X.squeeze())
+        n_s, n_t, n_f = X.shape
+        X_tensor = torch.from_numpy(X).view(n_s, n_t * n_f)
+        eval_loader = DataLoader(X_tensor.to(torch.float32), batch_size=n_s)
+
+        trainer = pl.Trainer()
+        errs = trainer.predict(self.model, eval_loader)
+        return torch.cat(errs, dim=0).squeeze().detach().numpy()
+
+
+class TranAD_Det(BaseEstimator):
+    """
+    Wrapper class for TranAD.
+    Based on paper:
+        TranAD: Deep Transformer Networks for Anomaly Detection in
+        Multivariate Time Series Data,
+        http://arxiv.org/abs/2201.07284
+
+    Parameters
+    ----------
+    n_feats : int
+        Number of channels of time series
+    window_size : int
+        Size of input
+    lr : float, default 1r-3
+        Learning rate
+    batch_size : int, default 256
+        Number of samples in one batch
+    trainer_config : dict
+        Kwargs for pl.Trainer class when fitting the model
+    """
+
+    def __init__(
+        self,
+        n_feats,
+        window_size,
+        lr=1e-3,
+        batch_size=256,
+        trainer_config=None,
+    ) -> None:
+        self.fitted = False
+        self.model_name = 'TranAD'
+        self.n_feats = n_feats
+        self.window_size = window_size
+        self.lr = lr
+        self.batch_size = batch_size
+        self.model = TranAD(
+            n_feats=self.n_feats,
+            window_size=self.window_size,
+            learning_rate=self.lr,
+        )
+        self.trainer_config = trainer_config
+
+    def fit(self, X: np.ndarray, y=None):
+        """
+        Fit method of the network.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Training data of shape (n_samples, n_timepoints, n_features)
+        y : np.ndarray, optional
+            Ignored.
+
+        Returns
+        -------
+        self
+        """
+        _LOGGER.info(f'Fitting {self.__class__.__name__}')
+        validate_data_3d(X)
+
+        n_s, n_t, n_f = X.shape
+        X_tensor = torch.from_numpy(X).to(torch.float32)
+
+        X_train, X_valid = train_test_split(
+            X_tensor, test_size=0.2, shuffle=False
+        )
+
+        train_loader = DataLoader(
+            TensorDataset(X_train, X_train), batch_size=self.batch_size
+        )
+        val_loader = DataLoader(
+            TensorDataset(X_valid, X_valid), batch_size=X_valid.shape[0]
+        )
+
+        trainer = pl.Trainer(**self.trainer_config)
+        trainer.fit(self.model, train_loader, val_loader)
+        return self
+
+    def predict(self, X: np.ndarray):
+        """
+        Predict method
+        Not implemented
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Raises
+        ------
+        NotImplementedError
+            Not implemented
+        """
+        _LOGGER.info(f'Predicting {self.__class__.__name__}')
+        raise NotImplementedError()
+
+    def predict_anomaly_scores(self, X: np.ndarray):
+        """
+        Predict anomaly scores
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Returns
+        -------
+        np.ndarray of shape (n_samples, )
+            Reconstruction error as anomaly score
+        """
+        validate_data_3d(X)
+        n_s, n_t, n_f = X.shape
+        X_tensor = torch.from_numpy(X).to(torch.float32)
         eval_loader = DataLoader(
-            X_tensor.to(torch.float32), batch_size=self.batch_size * 8
+            TensorDataset(X_tensor, X_tensor), batch_size=n_s
         )
 
         trainer = pl.Trainer()
         errs = trainer.predict(self.model, eval_loader)
         return torch.cat(errs, dim=0).squeeze().detach().numpy()
+
+
+class GDN_Det(BaseEstimator):
+    """
+    Wrapper class for GDN.
+    Based on paper:
+        TranAD: Deep Transformer Networks for Anomaly Detection in
+        Multivariate Time Series Data,
+        http://arxiv.org/abs/2201.07284
+
+    Parameters
+    ----------
+    n_feats : int
+        Number of channels of time series
+    window_size : int
+        Size of input
+    n_hidden : int
+        Size of hidden layer
+    lr : float, default 1r-3
+        Learning rate
+    batch_size : int, default 256
+        Number of samples in one batch
+    trainer_config : dict
+        Kwargs for pl.Trainer class when fitting the model
+    """
+
+    def __init__(
+        self,
+        n_feats,
+        window_size,
+        n_hidden,
+        lr=1e-3,
+        batch_size=256,
+        trainer_config=None,
+    ) -> None:
+        self.fitted = False
+        self.model_name = 'GDN'
+        self.n_feats = n_feats
+        self.window_size = window_size
+        self.n_hidden = n_hidden
+        self.lr = lr
+        self.batch_size = batch_size
+        self.model = GDN(
+            n_feats=self.n_feats,
+            window_size=self.window_size,
+            n_hidden=self.n_hidden,
+            learning_rate=self.lr,
+        )
+        self.trainer_config = trainer_config
+
+    def fit(self, X: np.ndarray, y=None):
+        """
+        Fit method of the network.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Training data of shape (n_samples, n_timepoints, n_features)
+        y : np.ndarray, optional
+            Ignored.
+
+        Returns
+        -------
+        self
+        """
+        _LOGGER.info(f'Fitting {self.__class__.__name__}')
+        validate_data_3d(X)
+
+        X_tensor = torch.from_numpy(X).to(torch.float32)
+
+        X_train, X_valid = train_test_split(
+            X_tensor, test_size=0.2, shuffle=False
+        )
+
+        y_train = X_train[:, -1, :]
+        X_train = X_train[:, :-1, :]
+
+        y_valid = X_valid[:, -1, :]
+        X_valid = X_valid[:, :-1, :]
+
+        train_loader = DataLoader(
+            TensorDataset(X_train, y_train), batch_size=self.batch_size
+        )
+        val_loader = DataLoader(
+            TensorDataset(X_valid, y_valid), batch_size=X_valid.shape[0]
+        )
+
+        trainer = pl.Trainer(**self.trainer_config)
+        trainer.fit(self.model, train_loader, val_loader)
+        return self
+
+    def predict(self, X: np.ndarray):
+        """
+        Predict method
+        Not implemented
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Raises
+        ------
+        NotImplementedError
+            Not implemented
+        """
+        _LOGGER.info(f'Predicting {self.__class__.__name__}')
+        raise NotImplementedError()
+
+    def predict_anomaly_scores(self, X: np.ndarray):
+        """
+        Predict anomaly scores
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Returns
+        -------
+        np.ndarray of shape (n_samples, )
+            Reconstruction error as anomaly score
+        """
+        validate_data_3d(X)
+        X_tensor = torch.from_numpy(X).to(torch.float32)
+        y_eval = X_tensor[:, -1, :]
+        X_eval = X_tensor[:, :-1, :]
+
+        eval_loader = DataLoader(
+            TensorDataset(X_eval, y_eval), batch_size=X_eval.shape[0]
+        )
+
+        trainer = pl.Trainer()
+        errs = trainer.predict(self.model, eval_loader)
+        zeros = torch.zeros(X_eval.shape[1], 1)
+        return torch.cat([zeros] + errs, dim=0).squeeze().numpy()
