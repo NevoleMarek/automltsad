@@ -12,11 +12,7 @@ import torch.optim as optim
 from dgl.nn import GATConv
 from torch.nn import TransformerDecoder, TransformerEncoder
 
-from automltsad.detectors.utils import (
-    PositionalEncoding,
-    TransformerDecoderLayer,
-    TransformerEncoderLayer,
-)
+from automltsad.detectors.utils import PositionalEncoding
 
 torch.manual_seed(1)
 
