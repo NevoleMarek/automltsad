@@ -97,7 +97,7 @@ class TranAD(pl.LightningModule):
             dropout=0.1,
         )
         self.transformer_decoder1 = nn.TransformerDecoder(decoder_layers1, 1)
-        decoder_layers2 = TransformerDecoderLayer(
+        decoder_layers2 = nn.TransformerDecoderLayer(
             d_model=2 * self.n_feats,
             nhead=self.n_feats,
             dim_feedforward=16,
