@@ -5,6 +5,7 @@ from automltsad.detectors.detectors import (
     LOF,
     OCSVM,
     GDN_Det,
+    GTA_Det,
     IsolationForestAD,
     LSTM_AE_Det,
     RandomForest,
@@ -13,3 +14,4 @@ from automltsad.detectors.detectors import (
     VAE_Det,
     WindowingDetector,
 )
+from automltsad.detectors.GTA.gta import GTA

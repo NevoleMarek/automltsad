@@ -20,6 +20,7 @@ from sklearn.svm import OneClassSVM
 from torch.utils.data import DataLoader, TensorDataset
 
 from automltsad.detectors.deeplearning import GDN, LSTM_AE, VAE, TranAD
+from automltsad.detectors.GTA.gta import GTA
 from automltsad.transform import MeanVarianceScaler
 from automltsad.utils import (
     conv_3d_to_2d,
@@ -1768,6 +1769,164 @@ class GDN_Det(BaseEstimator):
 
         eval_loader = DataLoader(
             TensorDataset(X_eval, y_eval), batch_size=X_eval.shape[0]
+        )
+
+        trainer = pl.Trainer()
+        errs = trainer.predict(self.model, eval_loader)
+        zeros = torch.zeros(X_eval.shape[1], 1)
+        return torch.cat([zeros] + errs, dim=0).squeeze().numpy()
+
+
+class GTA_Det(BaseEstimator):
+    """
+    Wrapper class for GTA.
+    Based on paper:
+        Learning Graph Structures with Transformer for Multivariate Time Series
+        Anomaly Detection in IoT
+        https://arxiv.org/abs/2104.03466
+
+    Parameters
+    ----------
+    num_nodes : int
+        Number of features (sensors/channels)
+    seq_len : int
+        Size of input to encoder
+    label_len : int
+        Number of steps from input to feed to decoder
+    out_len : int
+        Number of time steps to forecast
+    num_levels : int
+        Number of layers in GraphTemporalEmbedding module
+    window_size : int
+        Size of input to fit method must be equal to seq_len + out_len
+    lr : float, default 1r-3
+        Learning rate
+    batch_size : int, default 256
+        Number of samples in one batch
+    trainer_config : dict
+        Kwargs for pl.Trainer class when fitting the model
+
+    """
+
+    def __init__(
+        self,
+        num_nodes,
+        seq_len,
+        label_len,
+        out_len,
+        num_levels,
+        window_size,
+        lr=1e-3,
+        batch_size=256,
+        trainer_config=None,
+    ) -> None:
+        self.fitted = False
+        self.model_name = 'GTA'
+        self.num_nodes = num_nodes
+        self.seq_len = seq_len
+        self.label_len = label_len
+        self.out_len = out_len
+        self.num_levels = num_levels
+        self.window_size = window_size
+        self.lr = lr
+        self.batch_size = batch_size
+        self.model = GTA(
+            num_nodes=self.num_nodes,
+            seq_len=self.seq_len,
+            label_len=self.label_len,
+            out_len=self.out_len,
+            num_levels=self.num_levels,
+            learning_rate=self.lr,
+        )
+        self.trainer_config = trainer_config
+        if seq_len + out_len != window_size:
+            raise ValueError(
+                (
+                    f'seq_len + out_len has to == window_size'
+                    f', {seq_len + out_len} != {window_size}'
+                )
+            )
+
+    def fit(self, X: np.ndarray, y=None):
+        """
+        Fit method of the network.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Training data of shape (n_samples, seq_len+out_len, n_features)
+        y : np.ndarray, optional
+            Ignored.
+
+        Returns
+        -------
+        self
+        """
+        _LOGGER.info(f'Fitting {self.__class__.__name__}')
+        validate_data_3d(X)
+
+        X_tensor = torch.from_numpy(X).to(torch.float32)
+        y_tensor = X_tensor[:, -(self.label_len + self.out_len) :, :]
+        X_tensor = X_tensor[:, : self.seq_len, :]
+        X_train, X_valid, y_train, y_valid = train_test_split(
+            X_tensor, y_tensor, test_size=0.2, shuffle=False
+        )
+
+        train_loader = DataLoader(
+            TensorDataset(X_train, y_train, X_train, y_train),
+            batch_size=self.batch_size,
+        )
+        val_loader = DataLoader(
+            TensorDataset(X_valid, y_valid, X_valid, y_valid),
+            batch_size=X_valid.shape[0],
+        )
+
+        trainer = pl.Trainer(**self.trainer_config)
+        trainer.fit(self.model, train_loader, val_loader)
+        return self
+
+    def predict(self, X: np.ndarray):
+        """
+        Predict method
+        Not implemented
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Raises
+        ------
+        NotImplementedError
+            Not implemented
+        """
+        _LOGGER.info(f'Predicting {self.__class__.__name__}')
+        raise NotImplementedError()
+
+    def predict_anomaly_scores(self, X: np.ndarray):
+        """
+        Predict anomaly scores
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Test data of shape (n_samples, n_timepoints, n_features)
+
+        Returns
+        -------
+        np.ndarray of shape (n_samples, )
+            Reconstruction error as anomaly score
+        """
+        validate_data_3d(X)
+        X_tensor = torch.from_numpy(X).to(torch.float32)
+
+        y_eval = X_tensor[:, -(self.label_len + self.out_len) :, :]
+
+        X_eval = X_tensor[:, : self.seq_len, :]
+
+        eval_loader = DataLoader(
+            TensorDataset(X_eval, y_eval, X_eval, y_eval),
+            batch_size=X_eval.shape[0],
         )
 
         trainer = pl.Trainer()
