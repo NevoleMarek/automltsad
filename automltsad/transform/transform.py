@@ -82,7 +82,7 @@ class MinMaxScaler(TransformerMixin, BaseTransformer):
         Range to scale the data to.
     '''
 
-    def __init__(self, value_range=(0.0, 1, 0)) -> None:
+    def __init__(self, value_range=(0.0, 1.0)) -> None:
         self._value_range = value_range
         self.scaler = TimeSeriesScalerMinMax(value_range=value_range)
 
