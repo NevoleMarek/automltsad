@@ -4,13 +4,6 @@ import numpy as np
 import pytorch_lightning as pl
 import pywt
 import torch
-from pytorch_lightning.callbacks import (
-    BatchSizeFinder,
-    EarlyStopping,
-    LearningRateFinder,
-    ModelCheckpoint,
-    RichProgressBar,
-)
 from sklearn.base import BaseEstimator
 from sklearn.covariance import EmpiricalCovariance
 from sklearn.ensemble import IsolationForest, RandomForestRegressor
@@ -54,6 +47,7 @@ class TrivialDetector(BaseEstimator):
     """
 
     def __init__(self, contamination: float) -> None:
+        self.name = 'trivial'
         self.fitted = False
         self.contamination = contamination
 
@@ -293,6 +287,7 @@ class KNN(BaseEstimator):
         metric_params=None,
         n_jobs=None,
     ) -> None:
+        self.name = 'knn'
         self.fitted = False
         self.n_neighbors = n_neighbors
         self.radius = radius
@@ -452,6 +447,7 @@ class IsolationForestAD(BaseEstimator):
         verbose=0,
         warm_start=False,
     ) -> None:
+        self.name = 'isoforest'
         self.fitted = False
         self.n_estimators = n_estimators
         self.max_samples = max_samples
@@ -622,6 +618,7 @@ class LOF(BaseEstimator):
         novelty=True,
         n_jobs=None,
     ):
+        self.name = 'lof'
         self.fitted = False
         self.algorithm = algorithm
         self.leaf_size = leaf_size
@@ -729,6 +726,7 @@ class DWTMLEAD(BaseEstimator):
         epsilon=0.01,
         b=2,
     ):
+        self.name = 'dwtmlead'
         self.fitted = False
         self.l = l
         self.epsilon = epsilon
@@ -990,6 +988,7 @@ class RandomForest(BaseEstimator):
         ccp_alpha=0.0,
         max_samples=None,
     ) -> None:
+        self.name = 'randomforest'
         self.fitted = False
         self.n_estimators = n_estimators
         self.criterion = criterion
@@ -1156,6 +1155,7 @@ class OCSVM(BaseEstimator):
         verbose=False,
         max_iter=-1,
     ) -> None:
+        self.name = 'ocsvm'
         self.fitted = False
         self.kernel = kernel
         self.degree = degree
@@ -1281,8 +1281,8 @@ class LSTM_AE_Det(BaseEstimator):
         batch_size=256,
         trainer_config=None,
     ) -> None:
+        self.name = 'lstmae'
         self.fitted = False
-        self.model_name = 'LSTM_AE'
         self.n_feats = n_feats
         self.hidden_size = hidden_size
         self.n_layers = n_layers
@@ -1424,8 +1424,8 @@ class VAE_Det(BaseEstimator):
         batch_size=256,
         trainer_config=None,
     ) -> None:
+        self.name = 'vae'
         self.fitted = False
-        self.model_name = 'VAE'
         self.window_size = window_size
         self.encoder_hidden = encoder_hidden
         self.decoder_hidden = decoder_hidden
@@ -1548,8 +1548,8 @@ class TranAD_Det(BaseEstimator):
         batch_size=256,
         trainer_config=None,
     ) -> None:
+        self.name = 'tranad'
         self.fitted = False
-        self.model_name = 'TranAD'
         self.n_feats = n_feats
         self.window_size = window_size
         self.lr = lr
@@ -1674,8 +1674,8 @@ class GDN_Det(BaseEstimator):
         batch_size=256,
         trainer_config=None,
     ) -> None:
+        self.name = 'gdn'
         self.fitted = False
-        self.model_name = 'GDN'
         self.n_feats = n_feats
         self.window_size = window_size
         self.n_hidden = n_hidden
@@ -1820,8 +1820,8 @@ class GTA_Det(BaseEstimator):
         batch_size=256,
         trainer_config=None,
     ) -> None:
+        self.name = 'gta'
         self.fitted = False
-        self.model_name = 'GTA'
         self.num_nodes = num_nodes
         self.seq_len = seq_len
         self.label_len = label_len
