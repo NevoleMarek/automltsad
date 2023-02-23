@@ -1,0 +1,10 @@
+window: True
+
+hyperparams:
+  hidden_size:
+    min: 5
+    max: 50
+    step: 5
+  n_layers: [1, 2, 3]
+  dropout: [0, 0.1]
+  batch_size: [16, 64, 256, 1024]

@@ -1,0 +1,7 @@
+window: True
+
+hyperparams:
+  n_estimators: [100, 200, 400]
+  max_samples: [0.01, 0.02, 0.05]
+  max_features: [0.5, 0.7, 1.0]
+  bootstrap: [True, False]

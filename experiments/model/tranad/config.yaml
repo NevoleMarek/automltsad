@@ -1,0 +1,7 @@
+window: True
+
+hyperparams:
+  n_layers: [1, 2, 3]
+  ff_dim: [16, 32, 64]
+  nhead: [1, 2, 4]
+  batch_size: [16, 64, 256, 1024]

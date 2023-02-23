@@ -1,0 +1,6 @@
+window: True
+
+hyperparams:
+  nu:
+    min: 0.0001
+    max: 1

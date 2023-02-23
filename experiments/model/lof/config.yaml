@@ -1,0 +1,9 @@
+window: True
+
+hyperparams:
+  n_neighbors:
+    min: 11
+    max: 31
+    step: 4
+  algorithm: ball_tree
+  leaf_size: 100

@@ -1,0 +1,12 @@
+window: False
+
+hyperparams:
+  l:
+    min: 1
+    max: 5
+  epsilon:
+    min: 0.01
+    max: 0.1
+  b:
+    min: 1
+    max: 2
