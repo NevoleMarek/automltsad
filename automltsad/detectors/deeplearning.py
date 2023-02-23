@@ -74,36 +74,47 @@ class GDN(pl.LightningModule):
 
 # Proposed Model + Self Conditioning + Adversarial + MAML (VLDB 22)
 class TranAD(pl.LightningModule):
-    def __init__(self, n_feats, learning_rate, window_size):
+    def __init__(
+        self, n_feats, learning_rate, window_size, n_layers, ff_dim, nhead
+    ):
         super().__init__()
         self.learning_rate = learning_rate
         self.n_feats = n_feats
         self.n_window = window_size
         self.n = self.n_feats * self.n_window
+        self.n_layers = n_layers
+        self.ff_dim = ff_dim
+        self.nhead = nhead
         self.pos_encoder = PositionalEncoding(
             2 * self.n_feats, 0.1, self.n_window
         )
         encoder_layers = nn.TransformerEncoderLayer(
             d_model=2 * self.n_feats,
-            nhead=self.n_feats,
-            dim_feedforward=16,
+            nhead=self.nhead,
+            dim_feedforward=ff_dim,
             dropout=0.1,
         )
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, 1)
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layers, n_layers
+        )
         decoder_layers1 = nn.TransformerDecoderLayer(
             d_model=2 * self.n_feats,
-            nhead=self.n_feats,
-            dim_feedforward=16,
+            nhead=self.nhead,
+            dim_feedforward=ff_dim,
             dropout=0.1,
         )
-        self.transformer_decoder1 = nn.TransformerDecoder(decoder_layers1, 1)
+        self.transformer_decoder1 = nn.TransformerDecoder(
+            decoder_layers1, n_layers
+        )
         decoder_layers2 = nn.TransformerDecoderLayer(
             d_model=2 * self.n_feats,
-            nhead=self.n_feats,
-            dim_feedforward=16,
+            nhead=self.nhead,
+            dim_feedforward=ff_dim,
             dropout=0.1,
         )
-        self.transformer_decoder2 = nn.TransformerDecoder(decoder_layers2, 1)
+        self.transformer_decoder2 = nn.TransformerDecoder(
+            decoder_layers2, n_layers
+        )
         self.fcn = nn.Sequential(nn.Linear(2 * self.n_feats, self.n_feats))
         self.sqrtn_feats = np.sqrt(self.n_feats)
 
