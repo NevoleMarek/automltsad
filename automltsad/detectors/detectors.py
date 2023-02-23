@@ -1153,7 +1153,7 @@ class OCSVM(BaseEstimator):
         shrinking=True,
         cache_size=200,
         verbose=False,
-        max_iter=-1,
+        max_iter=1000,
     ) -> None:
         self.name = 'ocsvm'
         self.fitted = False
@@ -1325,7 +1325,9 @@ class LSTM_AE_Det(BaseEstimator):
         )
 
         train_loader = DataLoader(
-            X_train.to(torch.float32), batch_size=self.batch_size
+            X_train.to(torch.float32),
+            batch_size=self.batch_size,
+            drop_last=True,
         )
         val_loader = DataLoader(
             X_valid.to(torch.float32), batch_size=self.batch_size * 4
@@ -1466,10 +1468,12 @@ class VAE_Det(BaseEstimator):
         )
 
         train_loader = DataLoader(
-            X_train.to(torch.float32), batch_size=self.batch_size
+            X_train.to(torch.float32),
+            batch_size=self.batch_size,
+            drop_last=True,
         )
         val_loader = DataLoader(
-            X_valid.to(torch.float32), batch_size=self.batch_size * 4
+            X_valid.to(torch.float32), batch_size=X_valid.shape[0]
         )
 
         trainer = pl.Trainer(**self.trainer_config)
@@ -1532,6 +1536,12 @@ class TranAD_Det(BaseEstimator):
         Number of channels of time series
     window_size : int
         Size of input
+    n_layers : int
+        Number of encoder and decoder layers
+    ff_dim : int
+        Dimension of feedforward layer in TransformerEncoder and Decoder Layer
+    nhead : int
+        Number of heads in Transformer
     lr : float, default 1r-3
         Learning rate
     batch_size : int, default 256
@@ -1544,12 +1554,18 @@ class TranAD_Det(BaseEstimator):
         self,
         n_feats,
         window_size,
+        n_layers,
+        ff_dim,
+        nhead,
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
     ) -> None:
         self.name = 'tranad'
         self.fitted = False
+        self.n_layers = n_layers
+        self.ff_dim = ff_dim
+        self.nhead = nhead
         self.n_feats = n_feats
         self.window_size = window_size
         self.lr = lr
@@ -1558,6 +1574,9 @@ class TranAD_Det(BaseEstimator):
             n_feats=self.n_feats,
             window_size=self.window_size,
             learning_rate=self.lr,
+            n_layers=self.n_layers,
+            ff_dim=self.ff_dim,
+            nhead=self.nhead,
         )
         self.trainer_config = trainer_config
 
@@ -1587,7 +1606,9 @@ class TranAD_Det(BaseEstimator):
         )
 
         train_loader = DataLoader(
-            TensorDataset(X_train, X_train), batch_size=self.batch_size
+            TensorDataset(X_train, X_train),
+            batch_size=self.batch_size,
+            drop_last=True,
         )
         val_loader = DataLoader(
             TensorDataset(X_valid, X_valid), batch_size=X_valid.shape[0]
@@ -1720,7 +1741,9 @@ class GDN_Det(BaseEstimator):
         X_valid = X_valid[:, :-1, :]
 
         train_loader = DataLoader(
-            TensorDataset(X_train, y_train), batch_size=self.batch_size
+            TensorDataset(X_train, y_train),
+            batch_size=self.batch_size,
+            drop_last=True,
         )
         val_loader = DataLoader(
             TensorDataset(X_valid, y_valid), batch_size=X_valid.shape[0]
@@ -1816,6 +1839,13 @@ class GTA_Det(BaseEstimator):
         out_len,
         num_levels,
         window_size,
+        factor=5,
+        d_model=512,
+        n_heads=8,
+        e_layers=3,
+        d_layers=2,
+        d_ff=512,
+        dropout=0.0,
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
@@ -1827,10 +1857,24 @@ class GTA_Det(BaseEstimator):
         self.label_len = label_len
         self.out_len = out_len
         self.num_levels = num_levels
+        self.factor = factor
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.e_layers = e_layers
+        self.d_layers = d_layers
+        self.d_ff = d_ff
+        self.dropout = dropout
         self.window_size = window_size
         self.lr = lr
         self.batch_size = batch_size
         self.model = GTA(
+            factor=self.factor,
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            e_layers=self.e_layers,
+            d_layers=self.d_layers,
+            d_ff=self.d_ff,
+            dropout=self.dropout,
             num_nodes=self.num_nodes,
             seq_len=self.seq_len,
             label_len=self.label_len,
@@ -1874,6 +1918,7 @@ class GTA_Det(BaseEstimator):
 
         train_loader = DataLoader(
             TensorDataset(X_train, y_train, X_train, y_train),
+            drop_last=True,
             batch_size=self.batch_size,
         )
         val_loader = DataLoader(
