@@ -1,7 +1,7 @@
 window: True
 
 hyperparams:
-  num_leveels: [1, 2, 3]
+  num_levels: [1, 2, 3]
   batch_size: [16, 64, 256, 1024]
   factor: [3, 5]
   d_model: [256, 512]
