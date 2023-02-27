@@ -236,7 +236,7 @@ class KNN(BaseEstimator):
     radius : float, default=1.0
         Range of parameter space to use by default for radius_neighbors
         queries.
-    algorithm : {'auto', 'ball_tree', 'kd_tree', 'brute'}, default='auto'
+    algorithm : {'auto', 'ball_tree', 'kd_tree', 'brute'}, default='ball_tree'
         Algorithm used to compute the nearest neighbors:
         - 'ball_tree'
         - 'kd_tree'
@@ -245,7 +245,7 @@ class KNN(BaseEstimator):
           based on the values passed to fit method.
         Note: fitting on sparse input will override the setting of
         this parameter, using brute force.
-    leaf_size : int, default=30
+    leaf_size : int, default=100
         Leaf size passed to BallTree or KDTree.  This can affect the
         speed of the construction and query, as well as the memory
         required to store the tree.  The optimal value depends on the
@@ -280,8 +280,8 @@ class KNN(BaseEstimator):
         self,
         n_neighbors=5,
         radius=1.0,
-        algorithm='auto',
-        leaf_size=30,
+        algorithm='ball_tree',
+        leaf_size=100,
         metric='minkowski',
         p=2,
         metric_params=None,
@@ -552,7 +552,7 @@ class LOF(BaseEstimator):
         Number of neighbors to use by default for :meth:`kneighbors` queries.
         If n_neighbors is larger than the number of samples provided,
         all samples will be used.
-    algorithm : {'auto', 'ball_tree', 'kd_tree', 'brute'}, default='auto'
+    algorithm : {'auto', 'ball_tree', 'kd_tree', 'brute'}, default='ball_tree'
         Algorithm used to compute the nearest neighbors:
         - 'ball_tree'
         - 'kd_tree'
@@ -561,7 +561,7 @@ class LOF(BaseEstimator):
           based on the values passed to fit method.
         Note: fitting on sparse input will override the setting of
         this parameter, using brute force.
-    leaf_size : int, default=30
+    leaf_size : int, default=100
         Leaf is size passed to BallTree or KDTree. This can
         affect the speed of the construction and query, as well as the memory
         required to store the tree. The optimal value depends on the
@@ -609,8 +609,8 @@ class LOF(BaseEstimator):
     def __init__(
         self,
         n_neighbors=20,
-        algorithm="auto",
-        leaf_size=30,
+        algorithm="ball_tree",
+        leaf_size=100,
         metric="minkowski",
         p=2,
         metric_params=None,
