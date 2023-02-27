@@ -4,6 +4,8 @@ from typing import Tuple
 import numpy as np
 from sklearn.metrics import auc, f1_score, precision_recall_curve, roc_curve
 
+from automltsad.utils import reduce_window_scores
+
 
 def point_adjust(
     labels: np.ndarray, scores: np.ndarray, threshold: float, k: float = 0
@@ -181,7 +183,7 @@ def mass_volume_curve(
 
     n_samples, n_features, *_ = X.shape
     mc_samples = np.random.uniform(
-        X_min, X_max, (mc_samples_count, n_features)
+        X_min, X_max, (mc_samples_count, n_features, *_)
     )
     scores_samples = -detector.predict_anomaly_scores(mc_samples)
 
@@ -241,6 +243,7 @@ def feature_subsampling_auc(
     detector,
     X_train: np.ndarray,
     X_test: np.ndarray,
+    window: int,
     auc_func,
     n_subfeatures: int = 5,
     n_tries: int = 50,
@@ -256,6 +259,8 @@ def feature_subsampling_auc(
         Training feature matrix
     X_test : np.ndarray
         Testing feature matrix
+    window : int,
+        Size of windows, if windows used. If 0 windows not used.
     auc_func : function
         function to compute AUC
     n_subfeatures : int, optional
@@ -268,7 +273,7 @@ def feature_subsampling_auc(
     float
         mean AUC across subsampling tries
     """
-    _, n_features = X_train.shape
+    _, n_features, _ = X_train.shape
     aucs = np.zeros((n_tries,))
     for i in range(n_tries):
         features = np.random.choice(
@@ -277,7 +282,10 @@ def feature_subsampling_auc(
         X_train_ = X_train[:, features]
         X_test_ = X_test[:, features]
         detector.fit(X_train_)
-        aucs[i] = auc_func(detector, X_test_)
+        scores = detector.predict_anomaly_scores(X_test_)
+        if window:
+            scores = reduce_window_scores(scores, window)
+        aucs[i] = auc_func(detector, X_test_, scores)
     return np.mean(aucs)
 
 
@@ -285,6 +293,7 @@ def mv_feature_subsampling_auc_score(
     detector,
     X_train: np.ndarray,
     X_test: np.ndarray,
+    window: int = 0,
     alpha_min: float = 0.9,
     alpha_max: float = 0.999,
     alphas_count: int = 100,
@@ -304,6 +313,8 @@ def mv_feature_subsampling_auc_score(
         Training feature matrix
     X_test : np.ndarray
         Testing feature matrix
+    window : int, by default 0
+        Size of window, if detector uses windows. Else pass 0
     auc_func : function
         function to compute AUC
     n_subfeatures : int, optional
@@ -324,7 +335,7 @@ def mv_feature_subsampling_auc_score(
         mc_samples_count=mc_samples_count,
     )
     return feature_subsampling_auc(
-        detector, X_train, X_test, mvfunc, n_subfeatures, n_tries
+        detector, X_train, X_test, window, mvfunc, n_subfeatures, n_tries
     )
 
 
@@ -375,7 +386,7 @@ def excess_mass_curve(
     # Monte Carlo sampling
     n_samples, n_features, *_ = X.shape
     mc_samples = np.random.uniform(
-        X_min, X_max, (mc_samples_count, n_features)
+        X_min, X_max, (mc_samples_count, n_features, *_)
     )
     scores_samples = -detector.predict_anomaly_scores(mc_samples)
 
@@ -442,7 +453,8 @@ def em_feature_subsampling_auc_score(
     detector,
     X_train: np.ndarray,
     X_test: np.ndarray,
-    t_count: int = 2048,
+    window: int = 0,
+    t_count: int = 256,
     em_max: float = 0.9,
     mc_samples_count: int = 32768,
     n_subfeatures: int = 5,
@@ -459,6 +471,8 @@ def em_feature_subsampling_auc_score(
         The training set.
     X_test : numpy array
         The test set.
+    window : int, by default 0
+        Size of window, if detector uses windows. Else pass 0
     t_count : int, optional by default = 2048
         Number of points on the EM curve.
     em_max : float, optional by default = 0.9
@@ -482,5 +496,5 @@ def em_feature_subsampling_auc_score(
         mc_samples_count=mc_samples_count,
     )
     return feature_subsampling_auc(
-        detector, X_train, X_test, emfunc, n_subfeatures, n_tries
+        detector, X_train, X_test, window, emfunc, n_subfeatures, n_tries
     )
