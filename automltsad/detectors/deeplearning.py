@@ -163,12 +163,12 @@ class TranAD(pl.LightningModule):
         )
 
         # Losses
-        l_1 = 1.01**-n * F.mse_loss(O_1, src) + (
-            1 - 1.01**-n
-        ) * F.mse_loss(O_2_hat, src)
-        l_2 = 1.01**-n * F.mse_loss(O_2, src) - (
-            1 - 1.01**-n
-        ) * F.mse_loss(O_2_hat, src)
+        l_1 = 0.95**n * F.mse_loss(O_1, src) + (1 - 0.95**n) * F.mse_loss(
+            O_2_hat, src
+        )
+        l_2 = 0.95**n * F.mse_loss(O_2, src) - (1 - 0.95**n) * F.mse_loss(
+            O_2_hat, src
+        )
         loss = l_1 + l_2
         self.log('train_loss', loss, prog_bar=True)
         return loss
@@ -191,12 +191,12 @@ class TranAD(pl.LightningModule):
         )
 
         # Losses
-        l_1 = 1.01**-n * F.mse_loss(O_1, src) + (
-            1 - 1.01**-n
-        ) * F.mse_loss(O_2_hat, src)
-        l_2 = 1.01**-n * F.mse_loss(O_2, src) - (
-            1 - 1.01**-n
-        ) * F.mse_loss(O_2_hat, src)
+        l_1 = 0.95**n * F.mse_loss(O_1, src) + (1 - 0.95**n) * F.mse_loss(
+            O_2_hat, src
+        )
+        l_2 = 0.95**n * F.mse_loss(O_2, src) - (1 - 0.95**n) * F.mse_loss(
+            O_2_hat, src
+        )
         loss = l_1 + l_2
         self.log('val_loss', loss, prog_bar=True)
         return loss
@@ -286,7 +286,7 @@ class VAE(pl.LightningModule):
         x = batch
         z = self.encoder(x)
         mu, sigma = self.mu(z), torch.exp(self.sigma(z))
-        z = mu + sigma * self.N.sample(mu.shape)
+        z = mu + sigma * self.N.sample(mu.shape).to(self.device)
         self.kl = ((sigma**2 + mu**2) / 2 - torch.log(sigma) - 1 / 2).sum()
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x) + 0.0001 * self.kl
@@ -297,7 +297,7 @@ class VAE(pl.LightningModule):
         x = batch
         z = self.encoder(x)
         mu, sigma = self.mu(z), torch.exp(self.sigma(z))
-        z = mu + sigma * self.N.sample(mu.shape)
+        z = mu + sigma * self.N.sample(mu.shape).to(self.device)
         self.kl = ((sigma**2 + mu**2) / 2 - torch.log(sigma) - 1 / 2).sum()
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x)
@@ -410,6 +410,85 @@ class LSTM_AE(pl.LightningModule):
                 _, dec_state = self.dec(out[:, i].unsqueeze(1), dec_state)
 
         loss = F.l1_loss(out, x)
+        self.log('val_loss', loss, prog_bar=True)
+        return loss
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        return self(batch)
+
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(), lr=self.learning_rate)
+        return optimizer
+
+
+class AutoEncoder(pl.LightningModule):
+    def __init__(
+        self,
+        window_size,
+        encoder_hidden=[128, 64, 32],
+        decoder_hidden=[32, 64, 128],
+        latent_dim=16,
+        learning_rate=1e-3,
+    ):
+        super().__init__()
+        self.learning_rate = learning_rate
+
+        self.window_size = window_size
+        self.encoder_hidden = encoder_hidden
+        self.decoder_hidden = decoder_hidden
+        self.latent_dim = latent_dim
+
+        self.encoder = self._build_encoder()
+        self.decoder = self._build_decoder()
+
+    def _build_encoder(self):
+        in_features = self.window_size
+        self.encoder_layers = []
+        for h_dim in self.encoder_hidden + [self.latent_dim]:
+            self.encoder_layers.append(
+                nn.Sequential(
+                    nn.Linear(in_features, h_dim, bias=True),
+                    nn.BatchNorm1d(h_dim),
+                    nn.LeakyReLU(),
+                )
+            )
+            in_features = h_dim
+        return nn.Sequential(*self.encoder_layers)
+
+    def _build_decoder(self):
+        self.decoder_layers = []
+        in_features = self.latent_dim
+        for d_dim in self.decoder_hidden:
+            self.decoder_layers.append(
+                nn.Sequential(
+                    nn.Linear(in_features, d_dim, bias=True),
+                    nn.BatchNorm1d(d_dim),
+                    nn.LeakyReLU(),
+                )
+            )
+            in_features = d_dim
+
+        self.decoder_layers.append(nn.Linear(in_features, self.window_size))
+        return nn.Sequential(*self.decoder_layers)
+
+    def forward(self, batch):
+        x = batch
+        z = self.encoder(x)
+        return z
+
+    def training_step(self, batch, batch_idx):
+        x = batch
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        loss = F.mse_loss(x_hat, x)
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x = batch
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        loss = F.mse_loss(x_hat, x)
         self.log('val_loss', loss, prog_bar=True)
         return loss
 

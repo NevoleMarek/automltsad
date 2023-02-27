@@ -1,4 +1,10 @@
-from automltsad.detectors.deeplearning import GDN, LSTM_AE, VAE, TranAD
+from automltsad.detectors.deeplearning import (
+    GDN,
+    LSTM_AE,
+    VAE,
+    AutoEncoder,
+    TranAD,
+)
 from automltsad.detectors.detectors import (
     DWTMLEAD,
     KNN,
