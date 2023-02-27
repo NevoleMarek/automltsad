@@ -2,8 +2,7 @@ window: True
 
 hyperparams:
   n_neighbors:
-    min: 11
-    max: 31
-    step: 4
-  algorithm: ball_tree
-  leaf_size: 100
+    min: 5
+    max: 15
+    step: 2
+  metric: [l1, l2]
