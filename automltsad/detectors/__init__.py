@@ -3,6 +3,7 @@ from automltsad.detectors.deeplearning import (
     LSTM_AE,
     VAE,
     AutoEncoder,
+    ConvAutoEncoder,
     TranAD,
 )
 from automltsad.detectors.detectors import (

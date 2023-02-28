@@ -21,6 +21,7 @@ torch.manual_seed(1)
 class GDN(pl.LightningModule):
     def __init__(self, n_feats, window_size, n_hidden, learning_rate):
         super().__init__()
+        self.save_hyperparameters()
         self.learning_rate = learning_rate
         self.n_feats = n_feats
         self.n_window = window_size
@@ -78,6 +79,7 @@ class TranAD(pl.LightningModule):
         self, n_feats, learning_rate, window_size, n_layers, ff_dim, nhead
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.learning_rate = learning_rate
         self.n_feats = n_feats
         self.n_window = window_size
@@ -229,6 +231,7 @@ class VAE(pl.LightningModule):
         learning_rate=1e-3,
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.learning_rate = learning_rate
 
         self.window_size = window_size
@@ -325,6 +328,7 @@ class LSTM_AE(pl.LightningModule):
         learning_rate=1e-3,
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.learning_rate = learning_rate
 
         self.n_feats = n_feats
@@ -421,6 +425,130 @@ class LSTM_AE(pl.LightningModule):
         return optimizer
 
 
+class ConvAutoEncoder(pl.LightningModule):
+    def __init__(
+        self,
+        input_size,
+        input_channels,
+        n_layers,
+        latent_dim=16,
+        learning_rate=1e-3,
+    ):
+        super().__init__()
+        self.save_hyperparameters()
+        self.learning_rate = learning_rate
+
+        self.n_layers = n_layers
+        self.input_size = input_size
+        self.input_channels = input_channels
+        self.latent_dim = latent_dim
+
+        self.encoder = self._build_encoder()
+        self.decoder = self._build_decoder()
+
+    def _build_encoder(self):
+        encoder_layers = []
+        encoder_layers.append(
+            nn.Linear(self.input_size, 2 ** int(np.log2(self.input_size)))
+        )
+        in_channels = self.input_channels
+        for i in range(self.n_layers):
+            encoder_layers.append(
+                nn.Sequential(
+                    nn.Conv1d(in_channels, in_channels * 2, 3, padding='same'),
+                    nn.MaxPool1d(2),
+                    nn.ReLU(),
+                )
+            )
+            in_channels = in_channels * 2
+
+        encoder_layers.append(
+            nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(
+                    in_channels
+                    * 2 ** (int(np.log2(self.input_size)) - self.n_layers),
+                    self.latent_dim,
+                ),
+            )
+        )
+        return nn.Sequential(*encoder_layers)
+
+    def _build_decoder(self):
+        out_channels = 2**self.n_layers
+        decoder_layers = []
+        decoder_layers.append(
+            nn.Sequential(
+                nn.Linear(
+                    self.latent_dim,
+                    out_channels
+                    * 2 ** (int(np.log2(self.input_size)) - self.n_layers),
+                ),
+                nn.Unflatten(
+                    dim=1,
+                    unflattened_size=[
+                        out_channels,
+                        2 ** (int(np.log2(self.input_size)) - self.n_layers),
+                    ],
+                ),
+            )
+        )
+        for i in range(self.n_layers):
+            decoder_layers.append(
+                nn.Sequential(
+                    nn.ConvTranspose1d(
+                        out_channels,
+                        out_channels // 2,
+                        3,
+                        stride=2,
+                        output_padding=1,
+                        padding=1,
+                    ),
+                    nn.ReLU(),
+                )
+            )
+            out_channels = out_channels // 2
+
+        decoder_layers.append(
+            nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(
+                    out_channels * 2 ** int(np.log2(self.input_size)),
+                    self.input_size,
+                ),
+            )
+        )
+        return nn.Sequential(*decoder_layers)
+
+    def forward(self, batch):
+        x = batch
+        z = self.encoder(x)
+        return z
+
+    def training_step(self, batch, batch_idx):
+        x = batch
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        loss = F.mse_loss(x_hat, x)
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x = batch
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        loss = F.mse_loss(x_hat, x)
+        self.log('val_loss', loss, prog_bar=True)
+        return loss
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        return self(batch)
+
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(), lr=self.learning_rate)
+        return optimizer
+
+
 class AutoEncoder(pl.LightningModule):
     def __init__(
         self,
@@ -431,6 +559,7 @@ class AutoEncoder(pl.LightningModule):
         learning_rate=1e-3,
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.learning_rate = learning_rate
 
         self.window_size = window_size
@@ -444,31 +573,30 @@ class AutoEncoder(pl.LightningModule):
     def _build_encoder(self):
         in_features = self.window_size
         self.encoder_layers = []
-        for h_dim in self.encoder_hidden + [self.latent_dim]:
+        for h_dim in self.encoder_hidden:
             self.encoder_layers.append(
                 nn.Sequential(
                     nn.Linear(in_features, h_dim, bias=True),
-                    nn.BatchNorm1d(h_dim),
                     nn.LeakyReLU(),
                 )
             )
             in_features = h_dim
+        self.encoder_layers.append(nn.Linear(in_features, self.latent_dim))
         return nn.Sequential(*self.encoder_layers)
 
     def _build_decoder(self):
         self.decoder_layers = []
-        in_features = self.latent_dim
+        out_features = self.latent_dim
         for d_dim in self.decoder_hidden:
             self.decoder_layers.append(
                 nn.Sequential(
-                    nn.Linear(in_features, d_dim, bias=True),
-                    nn.BatchNorm1d(d_dim),
+                    nn.Linear(out_features, d_dim, bias=True),
                     nn.LeakyReLU(),
                 )
             )
-            in_features = d_dim
+            out_features = d_dim
 
-        self.decoder_layers.append(nn.Linear(in_features, self.window_size))
+        self.decoder_layers.append(nn.Linear(out_features, self.window_size))
         return nn.Sequential(*self.decoder_layers)
 
     def forward(self, batch):
