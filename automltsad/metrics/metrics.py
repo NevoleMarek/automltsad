@@ -442,7 +442,7 @@ def excess_mass_auc_score(
     )
 
     em_max_idx = np.argmax(ems < em_max)
-    if em_max_idx == 0:
+    if em_max_idx < 2:
         em_max_idx = ems.shape[0]
     ts = ts[:em_max_idx]
     ems = ems[:em_max_idx]
