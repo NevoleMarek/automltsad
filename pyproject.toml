@@ -37,6 +37,7 @@ plotly = "^5.11.0"
 tqdm = "^4.64.1"
 pandas = "^1.5.3"
 ipywidgets= "~7"
+torchinfo = "^1.7.2"
 
 [build-system]
 requires = ["poetry-core"]

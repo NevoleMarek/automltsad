@@ -3115,6 +3115,7 @@ triton = ["triton (==1.1.1)"]
 [package.source]
 type = "url"
 url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/pyg_lib-0.1.0%2Bpt113cu117-cp310-cp310-linux_x86_64.whl"
+
 [[package]]
 name = "pygments"
 version = "2.14.0"
@@ -4316,6 +4317,7 @@ test = ["pytest", "pytest-cov"]
 [package.source]
 type = "url"
 url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/torch_scatter-2.1.0%2Bpt113cu117-cp310-cp310-linux_x86_64.whl"
+
 [[package]]
 name = "torch-sparse"
 version = "0.6.16+pt113cu117"
@@ -4336,6 +4338,19 @@ test = ["pytest", "pytest-cov"]
 [package.source]
 type = "url"
 url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/torch_sparse-0.6.16%2Bpt113cu117-cp310-cp310-linux_x86_64.whl"
+
+[[package]]
+name = "torchinfo"
+version = "1.7.2"
+description = "Model summary in PyTorch, based off of the original torchsummary."
+category = "dev"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "torchinfo-1.7.2-py3-none-any.whl", hash = "sha256:3966557b1ab91e61dfeaa0a6c32a8f70e56819bf186da6ed347d28e14e405469"},
+    {file = "torchinfo-1.7.2.tar.gz", hash = "sha256:6cc1c7dedbfac387efbb5b87f85eb55fcd7f3054f445c79a281c5c3d7acd02cd"},
+]
+
 [[package]]
 name = "torchmetrics"
 version = "0.11.1"
@@ -4722,4 +4737,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "3.10.2"
-content-hash = "ec383c5a54c81c107407056a8ab8857b882006e9b87f130303e97b95e09f16ad"
+content-hash = "72d7c2cbc44acb253d8f54d55068c82f0a18118b2952062f37c22b60954953d6"
