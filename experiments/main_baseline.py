@@ -1,5 +1,6 @@
 import csv
 import os
+from time import perf_counter
 
 import numpy as np
 import tqdm
@@ -114,7 +115,7 @@ def main():
         model = NAME_TO_MODEL[detector]
 
         for dataset in tqdm.tqdm(datasets, desc='Dataset', leave=False):
-
+            start = perf_counter()
             # Window size slightly larger than 1 period
             window_sz = int(datasets_seasonality[dataset][0])
             if not window_sz:
@@ -137,7 +138,8 @@ def main():
 
             # Evaluate performance on test
             r = evaluate_model(scores, labels)
-            res.append([detector, dataset] + [*r])
+            end = perf_counter()
+            res.append([detector, dataset] + [*r] + [end - start])
 
     with open(RESULTS_DIR + f'{EXPERIMENT}_results.csv', mode='a') as csv_file:
         fieldnames = [
@@ -149,6 +151,7 @@ def main():
             'f1_pa_ts_auc',
             'aucpr',
             'aucroc',
+            'time',
         ]
         writer = csv.writer(csv_file, delimiter=',', quotechar='"')
         writer.writerow(fieldnames)

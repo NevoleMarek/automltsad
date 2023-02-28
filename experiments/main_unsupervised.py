@@ -2,6 +2,7 @@ import csv
 import datetime
 import multiprocessing
 import os
+from time import perf_counter
 
 import numpy as np
 import optuna
@@ -116,8 +117,9 @@ def process_task(task):
         window_sz = 16
 
     metrics = {'mv': {}, 'em': {}}
-    for metric in ['mv', 'em']:
+    for metric in ['em']:
 
+        start = perf_counter()
         # Workaround to be able to pass multiple arguments to objective
         func = lambda trial: objective(
             trial, detector, dataset, det_cfg, window_sz, metric
@@ -129,9 +131,11 @@ def process_task(task):
             study_name=f'Unsupervised-{metric}-{detector}',
             sampler=TPESampler(),
         )
-        study.optimize(func, n_trials=50)
+        study.optimize(func, n_trials=50, timeout=1800)
+        end = perf_counter()
         metrics[metric]['hps'] = study.best_params
         metrics[metric]['value'] = study.best_value
+        metrics[metric]['time'] = end - start
     return detector, dataset, metrics
 
 
@@ -140,14 +144,14 @@ def save_result(result):
     dir_path = MODEL_DIR + f'{detector}/unsupervised/{dataset}/'
     os.makedirs(dir_path, mode=0o777, exist_ok=True)
     with open(
-        dir_path + f'{datetime.date.today().strftime("%m%d%Y")}-hparams.yaml',
+        dir_path + 'result.yaml',
         'w',
     ) as file:
         yaml.dump(metrics, file)
 
 
 def main():
-    MAX_WORKERS = 32
+    MAX_WORKERS = 40
     # Load configs and metadata
     automl_cfg = get_yaml_config(CONFIG_DIR + EXPERIMENT)
     datasets = [d.strip('\n') for d in read_file(TEST_DATASETS)]
@@ -165,21 +169,6 @@ def main():
             total=len(tasks),
         ):
             save_result(result)
-
-    # with open(RESULTS_DIR + f'{EXPERIMENT}_results.csv', mode='a') as csv_file:
-    #     fieldnames = [
-    #         'detector',
-    #         'dataset',
-    #         'f1',
-    #         'f1_pa_auc',
-    #         'f1_pa',
-    #         'f1_pa_ts_auc',
-    #         'aucpr',
-    #         'aucroc',
-    #     ]
-    #     writer = csv.writer(csv_file, delimiter=',', quotechar='"')
-    #     writer.writerow(fieldnames)
-    #     writer.writerows(res)
 
 
 if __name__ == '__main__':

@@ -2,3 +2,4 @@ detectors:
   - knn
   - lof
   - isoforest
+  - ocsvm
