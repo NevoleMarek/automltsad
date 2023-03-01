@@ -97,11 +97,17 @@ def objective(trial, detector, dataset, det_cfg, window_sz, metric):
     match metric:
         case 'em':
             return em_feature_subsampling_auc_score(
-                det, train, test, window_sz, n_tries=50
+                det, train, test, window_sz, n_tries=30, mc_samples_count=65536
             )
         case 'mv':
             return mv_feature_subsampling_auc_score(
-                det, train, test, window_sz, n_tries=50
+                det,
+                train,
+                test,
+                window_sz,
+                n_tries=30,
+                alphas_count=128,
+                mc_samples_count=65536,
             )
         case _:
             raise ValueError('Wrong metric for unsupervised optimization.')
@@ -117,7 +123,7 @@ def process_task(task):
         window_sz = 16
 
     metrics = {'mv': {}, 'em': {}}
-    for metric in ['em']:
+    for metric in ['em', 'mv']:
 
         start = perf_counter()
         # Workaround to be able to pass multiple arguments to objective
