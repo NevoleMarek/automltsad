@@ -604,6 +604,11 @@ class AutoEncoder(pl.LightningModule):
         z = self.encoder(x)
         return z
 
+    def decode(self, batch):
+        x = batch
+        z = self.decoder(x)
+        return z
+
     def training_step(self, batch, batch_idx):
         x = batch
         z = self.encoder(x)
