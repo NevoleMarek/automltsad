@@ -7,65 +7,16 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import tqdm
-from config import DATA_DIR, DATASET_DIR, TEST_DATASETS
+from config import DATA_DIR, TEST_DATASETS
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
+from utils import get_dataset_seasonality, prepare_data, read_file
 
 from automltsad.detectors import AutoEncoder
-from automltsad.detectors.callbacks import (
-    EarlyStopping,
-    LearningRateFinder,
-    ModelCheckpoint,
-)
-from automltsad.transform import MinMaxScaler
-from automltsad.utils import sliding_window_sequences, to_time_series_dataset
+from automltsad.detectors.callbacks import EarlyStopping, ModelCheckpoint
 
 warnings.filterwarnings('ignore')
 _LOGGER = logging.getLogger('pytorch_lightning').setLevel(logging.ERROR)
-
-
-def read_file(fn):
-    with open(fn) as f:
-        return f.readlines()
-
-
-def get_dataset_seasonality():
-    lines = read_file(DATA_DIR + 'period.txt')
-    dct = {
-        t[0]: (t[1], t[2]) for t in [l.strip('\n').split(', ') for l in lines]
-    }
-    for k, v in dct.items():
-        if v[0] != 'None' and v[1] != 'None':
-            dct[k] = (int(v[0]), int(v[1]))
-        else:
-            dct[k] = (0, 0)
-    return dct
-
-
-def prepare_data(filename, scale, window, size):
-    test_start, anomaly_start, anomaly_end = [
-        int(i) for i in filename.split('.')[0].split('_')[-3:]
-    ]
-    filename = filename.strip('\n')
-    ts = np.loadtxt(f'{DATASET_DIR}/{filename}')
-    ts = to_time_series_dataset(ts)
-    if scale:
-        slr = MinMaxScaler()
-        ts = slr.fit_transform(ts)
-    train = ts[:, :test_start]
-    test = ts[:, test_start:]
-    label = np.zeros_like(test)
-    label[:, anomaly_start - test_start : anomaly_end - test_start] = 1
-    label = np.squeeze(label)
-    if window:
-        train, test = window_data(train, test, size)
-    return train, test, label
-
-
-def window_data(train, test, size):
-    train_w = sliding_window_sequences(train, size)
-    test_w = sliding_window_sequences(test, size)
-    return train_w, test_w
 
 
 def main():
