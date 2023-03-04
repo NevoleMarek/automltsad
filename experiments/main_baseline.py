@@ -1,86 +1,38 @@
 import csv
 import os
+import warnings
 from time import perf_counter
 
 import numpy as np
 import tqdm
-import yaml
 from config import (
     CONFIG_DIR,
-    DATA_DIR,
-    DATASET_DIR,
     MODEL_DIR,
     NAME_TO_MODEL,
     RESULTS_DIR,
     TEST_DATASETS,
-    TRAIN_DATASETS,
 )
 
-from automltsad.detectors import KNN, LOF, IsolationForestAD
 from automltsad.metrics import (
     auc,
     f1_pa,
     f1_pa_auc_score,
     precision_recall_curve,
     roc_auc_score,
+)from utils import (
+    get_autoencoder,
+    get_dataset_seasonality,
+    get_latent_dataset,
+    get_yaml_config,
+    prepare_data,
+    read_file,
+    save_result,
 )
-from automltsad.transform import MinMaxScaler
-from automltsad.utils import (
-    reduce_window_scores,
-    sliding_window_sequences,
-    to_time_series_dataset,
-)
+from automltsad.utils import reduce_window_scores
+
+warnings.filterwarnings('ignore')
 
 EXPERIMENT = 'baseline'
-
-
-def get_yaml_config(path):
-    with open(path + '.yaml') as f:
-        return yaml.full_load(f)
-
-
-def read_file(fn):
-    with open(fn) as f:
-        return f.readlines()
-
-
-def get_dataset_seasonality():
-    lines = read_file(DATA_DIR + 'period.txt')
-    dct = {
-        t[0]: (t[1], t[2]) for t in [l.strip('\n').split(', ') for l in lines]
-    }
-    for k, v in dct.items():
-        if v[0] != 'None' and v[1] != 'None':
-            dct[k] = (int(v[0]), int(v[1]))
-        else:
-            dct[k] = (0, 0)
-    return dct
-
-
-def prepare_data(filename, scale, window, size):
-    test_start, anomaly_start, anomaly_end = [
-        int(i) for i in filename.split('.')[0].split('_')[-3:]
-    ]
-    filename = filename.strip('\n')
-    ts = np.loadtxt(f'{DATASET_DIR}/{filename}')
-    ts = to_time_series_dataset(ts)
-    if scale:
-        slr = MinMaxScaler()
-        ts = slr.fit_transform(ts)
-    train = ts[:, :test_start]
-    test = ts[:, test_start:]
-    label = np.zeros_like(test)
-    label[:, anomaly_start - test_start : anomaly_end - test_start] = 1
-    label = np.squeeze(label)
-    if window:
-        train, test = window_data(train, test, size)
-    return train, test, label
-
-
-def window_data(train, test, size):
-    train_w = sliding_window_sequences(train, size)
-    test_w = sliding_window_sequences(test, size)
-    return train_w, test_w
 
 
 def evaluate_model(scores, labels):
@@ -154,7 +106,7 @@ def main():
             'time',
         ]
         writer = csv.writer(csv_file, delimiter=',', quotechar='"')
-        writer.writerow(fieldnames)
+        # writer.writerow(fieldnames)
         writer.writerows(res)
 
 
