@@ -80,7 +80,6 @@ def get_hparams(trial, det, det_cfg):
                 epsilon=trial.suggest_float(
                     'epsilon', hp['epsilon']['min'], hp['epsilon']['max']
                 ),
-                b=trial.suggest_int('b', hp['b']['min'], hp['b']['max']),
             )
         case 'ocsvm':
             return dict(
@@ -101,6 +100,9 @@ def get_hparams(trial, det, det_cfg):
                 batch_size=trial.suggest_categorical(
                     'batch_size', hp['batch_size']
                 ),
+                lr=trial.suggest_float(
+                    'lr', hp['lr']['min'], hp['lr']['max'], log=True
+                ),
             )
         case 'vae':
             return dict(
@@ -113,8 +115,13 @@ def get_hparams(trial, det, det_cfg):
                 batch_size=trial.suggest_categorical(
                     'batch_size', hp['batch_size']
                 ),
-                latent_dim=trial.suggest_categorical(
-                    'latent_dim', hp['latent_dim']
+                latent_dim=trial.suggest_int(
+                    'latent_dim',
+                    hp['latent_dim']['min'],
+                    hp['latent_dim']['max'],
+                ),
+                lr=trial.suggest_float(
+                    'lr', hp['lr']['min'], hp['lr']['max'], log=True
                 ),
             )
         case 'tranad':
@@ -124,6 +131,9 @@ def get_hparams(trial, det, det_cfg):
                 nhead=trial.suggest_categorical('nhead', hp['nhead']),
                 batch_size=trial.suggest_categorical(
                     'batch_size', hp['batch_size']
+                ),
+                lr=trial.suggest_float(
+                    'lr', hp['lr']['min'], hp['lr']['max'], log=True
                 ),
             )
         case 'gta':
@@ -141,6 +151,18 @@ def get_hparams(trial, det, det_cfg):
                 d_layers=trial.suggest_categorical('d_layers', hp['d_layers']),
                 d_ff=trial.suggest_categorical('d_ff', hp['d_ff']),
                 dropout=trial.suggest_categorical('dropout', hp['dropout']),
+                lr=trial.suggest_float(
+                    'lr', hp['lr']['min'], hp['lr']['max'], log=True
+                ),
             )
         case _:
             raise ValueError(f'Detector {det} not supported.')
+
+
+PYT_MODELS = [
+    'gdn',
+    'gta',
+    'lstmae',
+    'tranad',
+    'vae',
+]
