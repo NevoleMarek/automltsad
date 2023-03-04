@@ -722,7 +722,7 @@ class DWTMLEAD(BaseEstimator):
 
     def __init__(
         self,
-        l=4,
+        l=2,
         epsilon=0.01,
         b=2,
     ):
@@ -1153,7 +1153,7 @@ class OCSVM(BaseEstimator):
         shrinking=True,
         cache_size=200,
         verbose=False,
-        max_iter=1000,
+        max_iter=500,
     ) -> None:
         self.name = 'ocsvm'
         self.fitted = False
@@ -1280,6 +1280,7 @@ class LSTM_AE_Det(BaseEstimator):
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        **kwargs,
     ) -> None:
         self.name = 'lstmae'
         self.fitted = False
@@ -1425,6 +1426,7 @@ class VAE_Det(BaseEstimator):
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        **kwargs,
     ) -> None:
         self.name = 'vae'
         self.fitted = False
@@ -1532,8 +1534,6 @@ class TranAD_Det(BaseEstimator):
 
     Parameters
     ----------
-    n_feats : int
-        Number of channels of time series
     window_size : int
         Size of input
     n_layers : int
@@ -1542,6 +1542,8 @@ class TranAD_Det(BaseEstimator):
         Dimension of feedforward layer in TransformerEncoder and Decoder Layer
     nhead : int
         Number of heads in Transformer
+    n_feats : int, default 1
+        Number of channels of time series
     lr : float, default 1r-3
         Learning rate
     batch_size : int, default 256
@@ -1552,14 +1554,15 @@ class TranAD_Det(BaseEstimator):
 
     def __init__(
         self,
-        n_feats,
         window_size,
         n_layers,
         ff_dim,
         nhead,
+        n_feats=1,
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        **kwargs,
     ) -> None:
         self.name = 'tranad'
         self.fitted = False
@@ -1672,12 +1675,12 @@ class GDN_Det(BaseEstimator):
 
     Parameters
     ----------
-    n_feats : int
-        Number of channels of time series
     window_size : int
         Size of input
     n_hidden : int
         Size of hidden layer
+    n_feats : int, default 1
+        Number of channels of time series
     lr : float, default 1r-3
         Learning rate
     batch_size : int, default 256
@@ -1688,12 +1691,13 @@ class GDN_Det(BaseEstimator):
 
     def __init__(
         self,
-        n_feats,
         window_size,
         n_hidden,
+        n_feats=1,
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        **kwargs,
     ) -> None:
         self.name = 'gdn'
         self.fitted = False
@@ -1849,6 +1853,7 @@ class GTA_Det(BaseEstimator):
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        **kwargs,
     ) -> None:
         self.name = 'gta'
         self.fitted = False
