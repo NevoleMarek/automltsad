@@ -2,6 +2,7 @@ from functools import partial
 from typing import Tuple
 
 import numpy as np
+import torch
 from sklearn.metrics import auc, f1_score, precision_recall_curve, roc_curve
 
 from automltsad.utils import reduce_window_scores
@@ -141,6 +142,7 @@ def mass_volume_curve(
     alpha_max: float = 0.999,
     alphas_count: int = 100,
     mc_samples_count: int = 32768,
+    decoder=None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute mass-volume curve
@@ -185,6 +187,16 @@ def mass_volume_curve(
     mc_samples = np.random.uniform(
         X_min, X_max, (mc_samples_count, n_features, *_)
     )
+    if decoder:
+        mc_samples = mc_samples.reshape(mc_samples.shape[0], -1)
+        mc_samples = (
+            decoder.decode(
+                torch.from_numpy(mc_samples.copy()).to(torch.float32)
+            )
+            .detach()
+            .unsqueeze(2)
+            .numpy()
+        )
     scores_samples = -detector.predict_anomaly_scores(mc_samples)
 
     mv_alpha = np.zeros_like(alphas_vec)
@@ -201,6 +213,7 @@ def mass_volume_auc_score(
     alpha_max: float = 0.999,
     alphas_count: int = 100,
     mc_samples_count: int = 32768,
+    decoder=None,
 ) -> float:
     """
     Compute the area under the mass-volume curve (AUC)
@@ -228,13 +241,14 @@ def mass_volume_auc_score(
         AUC score
     """
     alphas, mvs = mass_volume_curve(
-        detector,
-        X,
-        scores,
-        alpha_min,
-        alpha_max,
-        alphas_count,
-        mc_samples_count,
+        detector=detector,
+        X=X,
+        scores=scores,
+        alpha_min=alpha_min,
+        alpha_max=alpha_max,
+        alphas_count=alphas_count,
+        mc_samples_count=mc_samples_count,
+        decoder=decoder,
     )
     return auc(alphas, mvs)
 
@@ -345,6 +359,7 @@ def excess_mass_curve(
     scores: np.ndarray = None,
     t_count: int = 2048,
     mc_samples_count: int = 32768,
+    decoder=None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute the Excess Mass Curve (EM) for an anomaly detector.
@@ -388,6 +403,16 @@ def excess_mass_curve(
     mc_samples = np.random.uniform(
         X_min, X_max, (mc_samples_count, n_features, *_)
     )
+    if decoder:
+        mc_samples = mc_samples.reshape(mc_samples.shape[0], -1)
+        mc_samples = (
+            decoder.decode(
+                torch.from_numpy(mc_samples.copy()).to(torch.float32)
+            )
+            .detach()
+            .unsqueeze(2)
+            .numpy()
+        )
     scores_samples = -detector.predict_anomaly_scores(mc_samples)
 
     ts = np.linspace(0, 100 / volume, t_count)
@@ -407,6 +432,7 @@ def excess_mass_auc_score(
     t_count: int = 2048,
     em_max: float = 0.9,
     mc_samples_count: int = 32768,
+    decoder=None,
 ) -> float:
     """
     Compute the area under the Excess Mass curve (AUC-EM) for a given detector and data.
@@ -439,6 +465,7 @@ def excess_mass_auc_score(
         scores=scores,
         t_count=t_count,
         mc_samples_count=mc_samples_count,
+        decoder=decoder,
     )
 
     em_max_idx = np.argmax(ems < em_max)
