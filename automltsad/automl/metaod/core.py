@@ -1,20 +1,10 @@
-# %%
-from copy import deepcopy
-
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import dcg_score, mean_squared_error, ndcg_score
+from sklearn.metrics import ndcg_score
 from sklearn.multioutput import MultiOutputRegressor
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.utils import check_array
-
-
-def get_mse(pred, actual):
-    # Ignore nonzero terms.
-    pred = pred[actual.nonzero()].flatten()
-    actual = actual[actual.nonzero()].flatten()
-    return mean_squared_error(pred, actual)
 
 
 def sigmoid(x, a=1):
@@ -43,26 +33,12 @@ class MetaODClass(object):
         ======
         train_performance : (ndarray)
             User x Item matrix with corresponding train_performance
-
         n_factors : (int)
             Number of latent factors to use in matrix
             factorization model
         learning : (str)
             Method of optimization. Options include
             'sgd' or 'als'.
-
-        item_fact_reg : (float)
-            Regularization term for item latent factors
-
-        user_fact_reg : (float)
-            Regularization term for user latent factors
-
-        item_bias_reg : (float)
-            Regularization term for item biases
-
-        user_bias_reg : (float)
-            Regularization term for user biases
-
         verbose : (bool)
             Whether or not to printout training progress
         """
@@ -80,7 +56,6 @@ class MetaODClass(object):
         self._v = verbose
         self.train_loss_ = [0]
         self.valid_loss_ = [0]
-        self.learning_rates_ = []
         self.scalar_ = None
         self.pca_ = None
 
@@ -107,10 +82,6 @@ class MetaODClass(object):
         learning_rate=0.1,
         n_estimators=100,
         max_depth=10,
-        max_rate=1.05,
-        min_rate=0.1,
-        discount=0.95,
-        n_steps=10,
     ):
         """Train model for n_iter iterations from scratch."""
 
@@ -132,27 +103,9 @@ class MetaODClass(object):
             scale=1.0 / self.n_factors, size=(self.n_items, self.n_factors)
         )
 
-        step_size = (max_rate - min_rate) / (n_steps - 1)
-        lr_list = list(np.arange(min_rate, max_rate, step_size))
-        lr_list.append(max_rate)
-        lr_list_reverse = deepcopy(lr_list)
-        lr_list_reverse.reverse()
-
-        learning_rate_full = []
-        for w in range(n_iter):
-            learning_rate_full.extend(lr_list)
-            learning_rate_full.extend(lr_list_reverse)
-
-        self.learning_rate_ = min_rate
-        self.learning_rates_.append(self.learning_rate_)
-
         ctr = 1
         np_ctr = 1
         while ctr <= n_iter:
-
-            self.learning_rate_ = learning_rate_full[ctr - 1]
-            self.learning_rates_.append(self.learning_rate_)
-
             self.regr_multirf = MultiOutputRegressor(
                 RandomForestRegressor(
                     n_estimators=n_estimators, max_depth=max_depth, n_jobs=4
@@ -168,10 +121,6 @@ class MetaODClass(object):
                 meta_valid_scaled
             )
 
-            # if ctr % 10 == 0 and self._v:
-            # print ('\tcurrent iteration: {}'.format(ctr))
-            # print('ALORS Rank Fixed iteration', ctr, ndcg_score(self.train_performance, np.dot(self.user_vecs, self.item_vecs.T)))
-            # self.learning_rates_.append(self.learning_rate)
             ndcg_s = []
             for w in range(self.ratings.shape[0]):
                 ndcg_s.append(
@@ -182,8 +131,6 @@ class MetaODClass(object):
                     )
                 )
 
-            # print('ALORS Fixed iteration', ctr, ndcg_score(self.train_performance, np.dot(self.user_vecs, self.item_vecs.T)))
-            # print('ALORS Rank Fixed iteration', ctr, 'training', np.mean(ndcg_s))
             self.train_loss_.append(np.mean(ndcg_s))
 
             ndcg_s = []
@@ -199,9 +146,6 @@ class MetaODClass(object):
                         k=self.n_items,
                     )
                 )
-
-            # print('ALORS Fixed iteration', ctr, ndcg_score(self.train_performance, np.dot(self.user_vecs, self.item_vecs.T)))
-            # print('ALORS Rank Fixed iteration', ctr, 'valid', np.mean(ndcg_s))
             self.valid_loss_.append(np.mean(ndcg_s))
 
             print(
@@ -212,7 +156,7 @@ class MetaODClass(object):
                 'valid',
                 self.valid_loss_[-1],
                 'learning rate',
-                self.learning_rates_[-1],
+                learning_rate,
             )
 
             # improvement is smaller than 1 perc
@@ -220,38 +164,18 @@ class MetaODClass(object):
                 (self.valid_loss_[-1] - self.valid_loss_[-2])
                 / self.valid_loss_[-2]
             ) <= 0.001:
-                # print(((self.valid_loss_[-1] - self.valid_loss_[-2])/self.valid_loss_[-2]))
                 np_ctr += 1
             else:
                 np_ctr = 1
             if np_ctr > 5:
                 break
 
-            # update learning rates
-            # self.learning_rate_ = self.learning_rate_ + 0.05
-            # self.learning_rates_.append(self.learning_rate_)
-            # if ctr % 2:
-            #     if ctr <=50:
-            #         self.learning_rate_ = min_rate * np.power(discount,ctr)
-            #     else:
-            #         self.learning_rate_ = min_rate * np.power(discount,50)
-
-            # else:
-            #     if ctr <=50:
-            #         self.learning_rate_ = max_rate * np.power(discount,ctr)
-            #     else:
-            #         self.learning_rate_ = max_rate * np.power(discount,50)
-
-            # self.learning_rates_.append(self.learning_rate_)
-
             train_indices = list(range(self.n_samples))
             np.random.shuffle(train_indices)
-            # print(train_indices)
 
             for h in train_indices:
 
                 uh = self.user_vecs[h, :].reshape(1, -1)
-                # print(uh.shape)
                 grads = []
 
                 for i in range(self.n_models):
@@ -260,24 +184,20 @@ class MetaODClass(object):
                     phis = []
                     rights = []
                     rights_v = []
-                    # remove i from js
+
                     js = list(range(self.n_models))
                     js.remove(i)
 
                     for j in js:
                         vj = self.item_vecs[j, :].reshape(-1, 1)
-                        # temp_vt = np.exp(np.matmul(uh, (vj-vi)))
-                        # temp_vt = np.ndarray.item(temp_vt)
+
                         temp_vt = sigmoid(
                             np.ndarray.item(np.matmul(uh, (vj - vi))), a=1
                         )
                         temp_vt_derivative = sigmoid_derivate(
                             np.ndarray.item(np.matmul(uh, (vj - vi))), a=1
                         )
-                        # print(uh.re, (self.item_vecs[j,:]-self.item_vecs[i,:]).T.shape)
-                        # print((self.item_vecs[j,:]-self.item_vecs[i,:]).reshape(-1, 1).shape)
-                        # print(temp_vt.shape)
-                        # assert (len(temp_vt)==1)
+
                         phis.append(temp_vt)
                         rights.append(temp_vt_derivative * (vj - vi))
                         rights_v.append(temp_vt_derivative * uh)
@@ -289,13 +209,9 @@ class MetaODClass(object):
                         self.n_models - 1, self.n_factors
                     )
 
-                    # print(rights.shape, rights_v.shape)
-
                     right = np.sum(np.asarray(rights), axis=0)
                     right_v = np.sum(np.asarray(rights_v), axis=0)
-                    # print(right, right_v)
 
-                    # print(np.asarray(rights).shape, np.asarray(right).shape)
                     grad = (
                         (10 ** (self.ratings[h, i]) - 1)
                         / (phi * (np.log(phi)) ** 2)
@@ -307,16 +223,14 @@ class MetaODClass(object):
                         * right_v
                     )
 
-                    self.item_vecs[i, :] += self.learning_rate_ * grad_v
+                    self.item_vecs[i, :] += learning_rate * grad_v
 
-                    # print(h, i, grad.shape)
                     grads.append(grad)
 
                 grads_uh = np.asarray(grads)
                 grad_uh = np.sum(grads_uh, axis=0)
 
-                self.user_vecs[h, :] -= self.learning_rate_ * grad_uh
-                # print(self.learning_rate_)
+                self.user_vecs[h, :] -= learning_rate * grad_uh
 
             ctr += 1
 
@@ -325,6 +239,7 @@ class MetaODClass(object):
         return self
 
     def predict(self, test_meta):
+
         test_meta = check_array(test_meta)
         assert test_meta.shape[1] == 200
 
