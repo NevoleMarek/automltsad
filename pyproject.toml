@@ -12,7 +12,7 @@ scikit-learn = "^1.2.0"
 PyWavelets = "^1.4.1"
 tslearn = "^0.5.2"
 pyod = "^1.0.7"
-optuna = "^3.0.5"
+optuna = { git = "git@github.com:optuna/optuna.git", branch = "master" }
 lightgbm = "^3.3.4"
 statsmodels = "^0.13.5"
 torch = "^1.13.1"
