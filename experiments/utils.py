@@ -1,18 +1,11 @@
+import os
+
 import numpy as np
 import torch
 import yaml
-from config import (
-    CONFIG_DIR,
-    DATA_DIR,
-    DATASET_DIR,
-    MODEL_DIR,
-    NAME_TO_MODEL,
-    PYT_MODELS,
-    TEST_DATASETS,
-    get_hparams,
-)
+from config import DATA_DIR, DATASET_DIR, MODEL_DIR
 
-from automltsad.detectors import AutoEncoder
+from automltsad.detectors import VAE, AutoEncoder
 from automltsad.transform import MinMaxScaler
 from automltsad.utils import (
     reduce_window_scores,
@@ -64,9 +57,9 @@ def prepare_data(filename, scale, window, size):
     return train, test, label
 
 
-def save_result(result):
+def save_result(result, f):
     detector, dataset, metrics = result
-    dir_path = MODEL_DIR + f'{detector}/{EXPERIMENT}/{dataset}/'
+    dir_path = MODEL_DIR + f'{detector}/{f}/{dataset}/'
     os.makedirs(dir_path, mode=0o777, exist_ok=True)
     with open(
         dir_path + 'result.yaml',
@@ -99,7 +92,34 @@ def get_latent_dataset(train, test, dataset):
     )
 
 
+def get_latent_dataset_vae(train, test, dataset):
+    model = VAE.load_from_checkpoint(DATA_DIR + 'vae/' + dataset + '-.ckpt')
+    train = train.reshape(train.shape[0], -1)
+    test = test.reshape(test.shape[0], -1)
+    return (
+        model.encode(torch.from_numpy(train.copy()).to(torch.float32))
+        .detach()
+        .unsqueeze(2)
+        .numpy(),
+        model.encode(torch.from_numpy(test.copy()).to(torch.float32))
+        .detach()
+        .unsqueeze(2)
+        .numpy(),
+    )
+
+
 def get_autoencoder(dataset):
     return AutoEncoder.load_from_checkpoint(
         DATA_DIR + 'ae/' + dataset + '-.ckpt'
+    )
+
+
+def get_vae(dataset):
+    return VAE.load_from_checkpoint(DATA_DIR + 'vae/' + dataset + '-.ckpt')
+
+
+def skip_task(task, experiment, file):
+    detector, dataset, _ = task
+    return os.path.exists(
+        f'{MODEL_DIR}{detector}/{experiment}/{dataset}/{file}'
     )

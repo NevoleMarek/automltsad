@@ -22,6 +22,7 @@ from utils import (
     prepare_data,
     read_file,
     save_result,
+    skip_task,
 )
 
 from automltsad.metrics import (
@@ -58,11 +59,11 @@ def objective(trial, detector, dataset, det_cfg, window_sz, metric):
     match metric:
         case 'em':
             return excess_mass_auc_score(
-                det, test, t_count=256, mc_samples_count=65536
+                det, test, t_count=512, mc_samples_count=262144
             )
         case 'mv':
             return mass_volume_auc_score(
-                det, test, alphas_count=128, mc_samples_count=65536
+                det, test, alphas_count=256, mc_samples_count=262144
             )
         case _:
             raise ValueError('Wrong metric for unsupervised optimization.')
@@ -91,12 +92,12 @@ def process_task(task):
             study_name=f'Unsupervisedae-{metric}-{detector}',
             sampler=TPESampler(),
         )
-        study.optimize(func, n_trials=50, timeout=1800)
+        study.optimize(func, n_trials=30, timeout=1200)
         end = perf_counter()
         metrics[metric]['hps'] = study.best_params
         metrics[metric]['value'] = study.best_value
         metrics[metric]['time'] = end - start
-    return detector, dataset, metrics
+    save_result((detector, dataset, metrics), EXPERIMENT)
 
 
 def evaluate_model(scores, labels):
@@ -155,14 +156,28 @@ def process_evaluation(task):
         if det_cfg['window']:
             scores = reduce_window_scores(scores, window_sz)
 
+        # For cases where score was inf
+        scores = np.nan_to_num(scores)
+
         # Evaluate performance on test
         r = evaluate_model(scores, labels)
+        r['metric'] = hps[metric]['value']
         dir_path = MODEL_DIR + f'{detector}/{EXPERIMENT}/{dataset}/'
         with open(
             dir_path + f'{metric}.yaml',
             'w',
         ) as file:
             yaml.dump(r, file)
+
+
+def create_tasks(detectors, datasets, windows, file):
+    tasks = []
+    for detector in detectors:
+        for dataset in datasets:
+            task = [detector, dataset, windows[dataset][0]]
+            if not skip_task(task, EXPERIMENT, file):
+                tasks.append(task)
+    return tasks
 
 
 def main():
@@ -173,23 +188,25 @@ def main():
     datasets_seasonality = get_dataset_seasonality()
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    # Parallel optimization
-    tasks = []
-    for detector in automl_cfg['detectors']:
-        for dataset in datasets:
-            tasks.append([detector, dataset, datasets_seasonality[dataset][0]])
+    tasks = create_tasks(
+        automl_cfg['detectors'], datasets, datasets_seasonality, 'result.yaml'
+    )
 
     with multiprocessing.Pool(MAX_WORKERS) as p:
         for result in tqdm.tqdm(
-            p.imap_unordered(process_task, tasks, chunksize=4),
+            p.imap(process_task, tasks),
             total=len(tasks),
         ):
-            save_result(result)
+            continue
+
+    tasks = create_tasks(
+        automl_cfg['detectors'], datasets, datasets_seasonality, 'em.yaml'
+    )
 
     # Load models, best hyperparams and evaluate using supervised metrics
     with multiprocessing.Pool(MAX_WORKERS) as p:
         for result in tqdm.tqdm(
-            p.imap_unordered(process_evaluation, tasks),
+            p.imap(process_evaluation, tasks),
             total=len(tasks),
         ):
             continue

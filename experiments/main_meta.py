@@ -7,6 +7,7 @@ from time import perf_counter
 import numpy as np
 import optuna
 import tqdm
+import yaml
 from config import (
     CONFIG_DIR,
     DATA_DIR,
@@ -30,6 +31,7 @@ from utils import (
     prepare_data,
     read_file,
     save_result,
+    skip_task,
 )
 
 from automltsad.automl.metaod import MetaODClass, generate_meta_features
@@ -48,7 +50,7 @@ EXPERIMENT = 'meta'
 def evaluate_model(scores, labels):
     p, r, t = precision_recall_curve(labels, scores)
     aucpr = auc(r, p)
-    return aucpr
+    return 1 - aucpr
 
 
 def objective(trial, detector, dataset, det_cfg, window_sz):
@@ -65,21 +67,22 @@ def objective(trial, detector, dataset, det_cfg, window_sz):
     # Train model
     if detector in PYT_MODELS:
         hps['trainer_config'] = dict(
-            accelerator='auto',
-            devices=1,
-            precision='16',
-            max_epochs=100,
+            accelerator='gpu',
+            devices=[0],
+            precision='32',
+            max_epochs=15,
             enable_model_summary=False,
             enable_progress_bar=False,
+            enable_checkpointing=False,
             callbacks=[
                 PyTorchLightningPruningCallback(trial, 'val_loss'),
-                EarlyStopping('val_loss', patience=1),
             ],
         )
+        hps['batch_size'] = 128
         hps['window_size'] = window_sz
-        hps['seq_len'] = window_sz
-        hps['out_len'] = window_sz - 1
-        hps['label_len'] = hps['out_len'] // 2
+        hps['seq_len'] = window_sz - 1
+        hps['out_len'] = 1
+        hps['label_len'] = hps['seq_len'] // 2
 
     det = model(**hps)
     det.fit(train)
@@ -88,9 +91,11 @@ def objective(trial, detector, dataset, det_cfg, window_sz):
     scores = det.predict_anomaly_scores(test)
 
     # Reduce scores if using windows
-    if det_cfg['window']:
-        scores = reduce_window_scores(scores, window_sz)
+    # if det_cfg['window']:
+    #     scores = reduce_window_scores(scores, window_sz)
 
+    # For cases where score was inf
+    scores = np.nan_to_num(scores)
     # Evaluate performance on test
     return evaluate_model(scores, labels)
 
@@ -112,12 +117,12 @@ def process_task(task):
 
     # Optimize
     if detector in PYT_MODELS:
-        opt_params = dict(timeout=300)
+        opt_params = dict(n_trials=50, timeout=300)
     else:
-        opt_params = dict(n_trials=30, timeout=1800)
+        opt_params = dict(n_trials=30, timeout=1200)
 
     study = optuna.create_study(
-        direction='maximize',
+        direction='minimize',
         study_name=f'Supervised-{detector}',
         sampler=TPESampler(),
         pruner=SuccessiveHalvingPruner(),
@@ -126,10 +131,10 @@ def process_task(task):
     end = perf_counter()
     metrics = dict(
         hps=study.best_params,
-        value=study.best_value,
+        value=1 - study.best_value,
         time=end - start,
     )
-    return detector, dataset, metrics
+    save_result((detector, dataset, metrics), EXPERIMENT)
 
 
 def process_meta(task):
@@ -143,6 +148,16 @@ def process_meta(task):
     np.save(f'{DATASET_DIR}/metafeatures/{dataset}.npy', meta_features)
 
 
+def create_tasks(detectors, datasets, windows, file):
+    tasks = []
+    for detector in detectors:
+        for dataset in datasets:
+            task = [detector, dataset, windows[dataset][0]]
+            if not skip_task(task, EXPERIMENT, file):
+                tasks.append(task)
+    return tasks
+
+
 def main():
     ###################################
     # Optimize models on train datasets
@@ -153,24 +168,25 @@ def main():
     train_datasets = [d.strip('\n') for d in read_file(TRAIN_DATASETS)]
     test_datasets = [d.strip('\n') for d in read_file(TEST_DATASETS)]
     datasets_seasonality = get_dataset_seasonality()
-    optuna.logging.set_verbosity(optuna.logging.ERROR)
+    optuna.logging.set_verbosity(optuna.logging.INFO)
 
     tasks = []
     results = {}
-    for detector in automl_cfg['detectors']:
-        for dataset in train_datasets:
-            results[detector] = {}
-            results[detector][dataset] = None
-            tasks.append([detector, dataset, datasets_seasonality[dataset][0]])
 
-    print('Computing performance matrix')
-    with multiprocessing.Pool(MAX_WORKERS) as p:
-        for result in tqdm.tqdm(
-            p.imap_unordered(process_task, tasks),
-            total=len(tasks),
-        ):
-            save_result(result)
-            results[result[0]][result[1]] = result[2]
+    tasks = create_tasks(
+        automl_cfg['detectors'],
+        train_datasets,
+        datasets_seasonality,
+        'result.yaml',
+    )
+
+    # print('Computing performance matrix')
+    # with multiprocessing.Pool(MAX_WORKERS) as p:
+    #     for result in tqdm.tqdm(
+    #         p.imap(process_task, tasks),
+    #         total=len(tasks),
+    #     ):
+    #         continue
 
     ########################################
     # Create performance matrix from results
@@ -179,31 +195,41 @@ def main():
     n_models = len(automl_cfg['detectors'])
     performance_matrix = np.zeros((n_datasets, n_models))
 
-    for i, detector in enumerate(automl_cfg['detectors']):
-        for j, dataset in enumerate(train_datasets):
-            performance_matrix[j, i] = results[detector][dataset]['value']
-    np.save(DATA_DIR + 'meta/perf_mat', performance_matrix)
+    # for i, d in enumerate(automl_cfg['detectors']):
+    #     for j, dt in enumerate(train_datasets):
+    #         with open(f'{MODEL_DIR}{d}/{EXPERIMENT}/{dt}/result.yaml') as f:
+    #             r = yaml.unsafe_load(f)
+    #             performance_matrix[j, i] = r['value']
+    # np.save(DATA_DIR + 'meta/perf_mat', performance_matrix)
     performance_matrix = np.load(DATA_DIR + 'meta/perf_mat.npy')
+    print(performance_matrix.shape)
 
     ############################
     # Meta features for datasets
     ############################
     # Load datasets and generate meta features
-    print('Computing meta features')
-    datasets = train_datasets + test_datasets
-    with multiprocessing.Pool(MAX_WORKERS) as p:
-        for result in tqdm.tqdm(
-            p.imap_unordered(
-                process_meta,
-                [(d, datasets_seasonality[d][0]) for d in datasets],
-            ),
-            total=len(datasets),
-        ):
-            continue
+    # print('Computing meta features')
+    # tasks = [
+    #     (d, datasets_seasonality[d][0])
+    #     for d in train_datasets + test_datasets
+    #     if not os.path.exists(f'{DATASET_DIR}metafeatures/{d}.npy')
+    # ]
 
-    meta_mat = np.zeros([len(train_datasets), 200])
+    # with multiprocessing.Pool(MAX_WORKERS) as p:
+    #     for result in tqdm.tqdm(
+    #         p.imap(
+    #             process_meta,
+    #             tasks,
+    #         ),
+    #         total=len(tasks),
+    #     ):
+    #         continue
+
+    meta_mat = np.zeros([len(train_datasets), 777])
     for i, ds in enumerate(train_datasets):
-        meta_mat[i, :] = np.load(f'{DATASET_DIR}metafeatures/{ds}.npy')
+        meta_mat[i, :] = np.load(f'{DATASET_DIR}metafeatures/tsfresh_{ds}.npy')
+
+    print(meta_mat.shape)
 
     # use cleaned and transformed meta-features
     meta_scalar = MMScaler()
@@ -220,50 +246,64 @@ def main():
     train_meta = meta_mat_transformed[:n_train, :].astype('float64')
     valid_meta = meta_mat_transformed[n_train:, :].astype('float64')
 
-    print('Training metaod')
+    # print('Training metaod')
 
-    learning_rate = [1, 0.1, 0.01, 1e-3, 1e-4]
-    factors = [5, 10, 20, 40]
-    best_clf = None
-    best_l = -np.inf
-    for l in learning_rate:
-        for f in factors:
-            clf = MetaODClass(
-                train_set,
-                valid_performance=valid_set,
-                n_factors=f,
-                learning='sgd',
-            )
-            clf.train(
-                n_iter=50,
-                meta_features=train_meta,
-                valid_meta=valid_meta,
-                learning_rate=l,
-            )
+    # learning_rate = [1, 0.1, 0.01]
+    # factors = [30, 40, 50, 60]
+    # best_clf = None
+    # best_l = -np.inf
+    # for l in learning_rate:
+    #     for f in factors:
+    #         print(l, f)
+    #         clf = MetaODClass(
+    #             train_set,
+    #             valid_performance=valid_set,
+    #             n_factors=f,
+    #             learning='sgd',
+    #         )
+    #         clf.train(
+    #             n_iter=30,
+    #             meta_features=train_meta,
+    #             valid_meta=valid_meta,
+    #             learning_rate=l,
+    #         )
 
-            l = np.nanargmax(clf.valid_loss_)
-            if l > best_l:
-                best_clf = clf
+    #         loss = np.nanargmax(clf.valid_loss_)
+    #         if loss > best_l:
+    #             best_clf = clf
 
-    dump(best_clf, f'{DATA_DIR}/meta/train_0.joblib')
+    # dump(best_clf, f'{DATA_DIR}/meta/train_tsfresh.joblib')
 
-    # # load PCA scalar
+    # load PCA scalar
     meta_scalar = load(os.path.join(DATA_DIR, 'meta/metascalar.joblib'))
 
-    # # # generate meta features
-    test_meta_mat = np.zeros([len(test_datasets), 200])
+    # generate meta features
+    test_meta_mat = np.zeros([len(test_datasets), 777])
     for i, ds in enumerate(test_datasets):
-        test_meta_mat[i, :] = np.load(f'{DATASET_DIR}metafeatures/{ds}.npy')
+        test_meta_mat[i, :] = np.load(
+            f'{DATASET_DIR}metafeatures/tsfresh_{ds}.npy'
+        )
 
     # replace nan by 0 for now
     # todo: replace by mean is better as fix_nan
     test_meta_mat = meta_scalar.transform(test_meta_mat)
     test_meta_mat = np.nan_to_num(test_meta_mat, nan=0)
 
-    clf = load(f'{DATA_DIR}/meta/train_0.joblib')
+    clf = load(f'{DATA_DIR}/meta/train_tsfresh.joblib')
     predict_scores = clf.predict(test_meta_mat)
     best_models = np.nanargmax(predict_scores, axis=1)
-    print([automl_cfg['detectors'][m] for m in best_models])
+    # print(predict_scores)
+    # print(best_models)
+    # print(automl_cfg['detectors'])
+    # print([automl_cfg['detectors'][m] for m in best_models])
+    detector_dataset = [
+        (det, dt)
+        for det, dt in zip(
+            [automl_cfg['detectors'][m] for m in best_models], test_datasets
+        )
+    ]
+    dump(detector_dataset, f'./experiments/results/best_models_tsfresh.joblib')
+    # print(detector_dataset)
 
 
 if __name__ == '__main__':

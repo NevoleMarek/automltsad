@@ -1,4 +1,3 @@
-import logging
 import multiprocessing
 import os
 import warnings
@@ -12,18 +11,13 @@ from config import (
     CONFIG_DIR,
     MODEL_DIR,
     NAME_TO_MODEL,
-    PYT_MODELS,
     TEST_DATASETS,
     get_hparams,
 )
-from optuna.integration import PyTorchLightningPruningCallback
-from optuna.pruners import SuccessiveHalvingPruner
 from optuna.samplers import TPESampler
-from pytorch_lightning.callbacks import EarlyStopping
 from utils import (
-    get_autoencoder,
     get_dataset_seasonality,
-    get_latent_dataset,
+    get_latent_dataset_vae,
     get_yaml_config,
     prepare_data,
     read_file,
@@ -42,12 +36,9 @@ from automltsad.metrics import (
 )
 from automltsad.utils import reduce_window_scores
 
-logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
-
 warnings.filterwarnings('ignore', 'Solver terminated early.*')
-warnings.filterwarnings('ignore')
 
-EXPERIMENT = 'unsupervised_aev2'
+EXPERIMENT = 'unsupervised_vae'
 
 
 def objective(trial, detector, dataset, det_cfg, window_sz, metric):
@@ -60,53 +51,19 @@ def objective(trial, detector, dataset, det_cfg, window_sz, metric):
     train, test, labels = prepare_data(
         dataset, scale=True, window=det_cfg['window'], size=window_sz
     )
-    train_l, test_l = get_latent_dataset(train, test, dataset)
-    ae = get_autoencoder(dataset)
-    if detector in PYT_MODELS:
-        hps['trainer_config'] = dict(
-            accelerator='gpu',
-            devices=[1],
-            precision='32',
-            max_epochs=15,
-            enable_model_summary=False,
-            enable_progress_bar=False,
-            enable_checkpointing=False,
-            callbacks=[
-                PyTorchLightningPruningCallback(trial, 'val_loss'),
-            ],
-        )
-        hps['batch_size'] = 128
-        hps['window_size'] = window_sz
-        hps['seq_len'] = window_sz - 1
-        hps['out_len'] = 1
-        hps['label_len'] = hps['seq_len'] // 2
+    train, test = get_latent_dataset_vae(train, test, dataset)
 
     # Train model
     det = model(**hps)
     det.fit(train)
-
-    # Predict scores
-    scores = det.predict_anomaly_scores(test)
-    # For cases where score was inf
-    scores = np.nan_to_num(scores)
     match metric:
         case 'em':
             return excess_mass_auc_score(
-                det,
-                test_l,
-                scores,
-                t_count=512,
-                mc_samples_count=262144,
-                decoder=ae,
+                det, test, t_count=512, mc_samples_count=262144
             )
         case 'mv':
             return mass_volume_auc_score(
-                det,
-                test_l,
-                scores,
-                alphas_count=256,
-                mc_samples_count=262144,
-                decoder=ae,
+                det, test, alphas_count=256, mc_samples_count=262144
             )
         case _:
             raise ValueError('Wrong metric for unsupervised optimization.')
@@ -130,20 +87,12 @@ def process_task(task):
         )
 
         # Optimize
-        if detector in PYT_MODELS:
-            opt_params = dict(n_trials=50, timeout=300)
-        else:
-            opt_params = dict(n_trials=30, timeout=1200)
-        pruner = None
-        if metric == 'mv':
-            pruner = SuccessiveHalvingPruner()
         study = optuna.create_study(
             direction='maximize' if metric == 'em' else 'minimize',
-            study_name=f'Unsupervised-aev2-{detector}',
+            study_name=f'Unsupervisedvae-{metric}-{detector}',
             sampler=TPESampler(),
-            pruner=pruner,
         )
-        study.optimize(func, **opt_params)
+        study.optimize(func, n_trials=30, timeout=1200)
         end = perf_counter()
         metrics[metric]['hps'] = study.best_params
         metrics[metric]['value'] = study.best_value
@@ -178,8 +127,7 @@ def evaluate_model(scores, labels):
 def process_evaluation(task):
     detector, dataset, window_sz = task
     # Get configs
-    print(detector, dataset)
-    cfg = get_yaml_config(
+    hps = get_yaml_config(
         MODEL_DIR + f'{detector}/{EXPERIMENT}/{dataset}/result'
     )
     det_cfg = get_yaml_config(os.path.join(MODEL_DIR, detector, 'config'))
@@ -194,26 +142,11 @@ def process_evaluation(task):
     train, test, labels = prepare_data(
         dataset, scale=True, window=det_cfg['window'], size=window_sz
     )
-    for metric in ['em', 'mv']:
-        hps = cfg[metric]['hps']
-        if detector in PYT_MODELS:
-            hps['trainer_config'] = dict(
-                accelerator='gpu',
-                devices=[1],
-                precision='16',
-                max_epochs=15,
-                enable_model_summary=False,
-                enable_progress_bar=False,
-                enable_checkpointing=False,
-            )
-            hps['bathc_size'] = 128
-            hps['window_size'] = window_sz
-            hps['seq_len'] = window_sz
-            hps['out_len'] = window_sz - 1
-            hps['label_len'] = hps['out_len'] // 2
+    train, test = get_latent_dataset_vae(train, test, dataset)
 
+    for metric in ['em', 'mv']:
         # Train model
-        det = model(**hps)
+        det = model(**hps[metric]['hps'])
         det.fit(train)
 
         # Predict scores
@@ -228,7 +161,7 @@ def process_evaluation(task):
 
         # Evaluate performance on test
         r = evaluate_model(scores, labels)
-        r['metric'] = cfg[metric]['value']
+        r['metric'] = hps[metric]['value']
         dir_path = MODEL_DIR + f'{detector}/{EXPERIMENT}/{dataset}/'
         with open(
             dir_path + f'{metric}.yaml',
@@ -248,29 +181,25 @@ def create_tasks(detectors, datasets, windows, file):
 
 
 def main():
-    MAX_WORKERS = 2
+    MAX_WORKERS = 40
     # Load configs and metadatad
     automl_cfg = get_yaml_config(CONFIG_DIR + EXPERIMENT)
     datasets = [d.strip('\n') for d in read_file(TEST_DATASETS)]
     datasets_seasonality = get_dataset_seasonality()
-    optuna.logging.set_verbosity(optuna.logging.INFO)
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    # Parallel optimization
     tasks = create_tasks(
         automl_cfg['detectors'], datasets, datasets_seasonality, 'result.yaml'
     )
-
     with multiprocessing.Pool(MAX_WORKERS) as p:
         for result in tqdm.tqdm(
             p.imap(process_task, tasks),
             total=len(tasks),
         ):
             continue
-
     tasks = create_tasks(
         automl_cfg['detectors'], datasets, datasets_seasonality, 'em.yaml'
     )
-
     # Load models, best hyperparams and evaluate using supervised metrics
     with multiprocessing.Pool(MAX_WORKERS) as p:
         for result in tqdm.tqdm(

@@ -21,9 +21,9 @@ from optuna.pruners import SuccessiveHalvingPruner
 from optuna.samplers import TPESampler
 from pytorch_lightning.callbacks import EarlyStopping
 from utils import (
-    get_autoencoder,
     get_dataset_seasonality,
-    get_latent_dataset,
+    get_latent_dataset_vae,
+    get_vae,
     get_yaml_config,
     prepare_data,
     read_file,
@@ -47,7 +47,7 @@ logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
 warnings.filterwarnings('ignore', 'Solver terminated early.*')
 warnings.filterwarnings('ignore')
 
-EXPERIMENT = 'unsupervised_aev2'
+EXPERIMENT = 'unsupervised_vaev2'
 
 
 def objective(trial, detector, dataset, det_cfg, window_sz, metric):
@@ -60,13 +60,13 @@ def objective(trial, detector, dataset, det_cfg, window_sz, metric):
     train, test, labels = prepare_data(
         dataset, scale=True, window=det_cfg['window'], size=window_sz
     )
-    train_l, test_l = get_latent_dataset(train, test, dataset)
-    ae = get_autoencoder(dataset)
+    train_l, test_l = get_latent_dataset_vae(train, test, dataset)
+    vae = get_vae(dataset)
     if detector in PYT_MODELS:
         hps['trainer_config'] = dict(
             accelerator='gpu',
             devices=[1],
-            precision='32',
+            precision='16',
             max_epochs=15,
             enable_model_summary=False,
             enable_progress_bar=False,
@@ -77,9 +77,9 @@ def objective(trial, detector, dataset, det_cfg, window_sz, metric):
         )
         hps['batch_size'] = 128
         hps['window_size'] = window_sz
-        hps['seq_len'] = window_sz - 1
+        hps['seq_len'] = window_sz
         hps['out_len'] = 1
-        hps['label_len'] = hps['seq_len'] // 2
+        hps['label_len'] = hps['out_len'] // 2
 
     # Train model
     det = model(**hps)
@@ -97,7 +97,7 @@ def objective(trial, detector, dataset, det_cfg, window_sz, metric):
                 scores,
                 t_count=512,
                 mc_samples_count=262144,
-                decoder=ae,
+                decoder=vae,
             )
         case 'mv':
             return mass_volume_auc_score(
@@ -106,7 +106,7 @@ def objective(trial, detector, dataset, det_cfg, window_sz, metric):
                 scores,
                 alphas_count=256,
                 mc_samples_count=262144,
-                decoder=ae,
+                decoder=vae,
             )
         case _:
             raise ValueError('Wrong metric for unsupervised optimization.')
@@ -178,7 +178,6 @@ def evaluate_model(scores, labels):
 def process_evaluation(task):
     detector, dataset, window_sz = task
     # Get configs
-    print(detector, dataset)
     cfg = get_yaml_config(
         MODEL_DIR + f'{detector}/{EXPERIMENT}/{dataset}/result'
     )
@@ -206,11 +205,11 @@ def process_evaluation(task):
                 enable_progress_bar=False,
                 enable_checkpointing=False,
             )
-            hps['bathc_size'] = 128
+            hps['batch_size'] = 128
             hps['window_size'] = window_sz
-            hps['seq_len'] = window_sz
-            hps['out_len'] = window_sz - 1
-            hps['label_len'] = hps['out_len'] // 2
+            hps['seq_len'] = window_sz - 1
+            hps['out_len'] = 1
+            hps['label_len'] = hps['seq_len'] // 2
 
         # Train model
         det = model(**hps)
