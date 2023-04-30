@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestRegressor
@@ -69,6 +71,7 @@ class MetaODClass(object):
                 ndcg_score(
                     [self.ratings[w, :]],
                     [np.dot(user_vecs[w, :], item_vecs.T)],
+                    1,
                 )
             )
 
@@ -81,10 +84,9 @@ class MetaODClass(object):
         n_iter=10,
         learning_rate=0.1,
         n_estimators=100,
-        max_depth=10,
+        max_depth=7,
     ):
         """Train model for n_iter iterations from scratch."""
-
         self.pca_ = PCA(n_components=self.n_factors)
         self.pca_.fit(meta_features)
 
@@ -103,12 +105,28 @@ class MetaODClass(object):
             scale=1.0 / self.n_factors, size=(self.n_items, self.n_factors)
         )
 
+        max_rate = learning_rate
+        min_rate = 1e-4
+        n_steps = 10
+        lr_list = list(np.geomspace(min_rate, max_rate, n_steps))
+        lr_list_reverse = deepcopy(lr_list)
+        lr_list_reverse.reverse()
+
+        learning_rate_full = []
+        for w in range(n_iter):
+            learning_rate_full.extend(lr_list)
+            learning_rate_full.extend(lr_list_reverse)
+
         ctr = 1
         np_ctr = 1
         while ctr <= n_iter:
+            learning_rate = learning_rate_full[
+                (ctr - 1) % len(learning_rate_full)
+            ]
+
             self.regr_multirf = MultiOutputRegressor(
                 RandomForestRegressor(
-                    n_estimators=n_estimators, max_depth=max_depth, n_jobs=4
+                    n_estimators=n_estimators, max_depth=max_depth, n_jobs=8
                 )
             )
 
@@ -159,11 +177,11 @@ class MetaODClass(object):
                 learning_rate,
             )
 
+            improv = (
+                self.valid_loss_[-1] - self.valid_loss_[-2]
+            ) / self.valid_loss_[-2]
             # improvement is smaller than 1 perc
-            if (
-                (self.valid_loss_[-1] - self.valid_loss_[-2])
-                / self.valid_loss_[-2]
-            ) <= 0.001:
+            if improv <= 0.001:
                 np_ctr += 1
             else:
                 np_ctr = 1
