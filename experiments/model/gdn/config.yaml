@@ -1,5 +1,0 @@
-window: True
-
-hyperparams:
-  n_hidden: [4, 8, 16]
-  batch_size: [16, 64, 256, 1024]

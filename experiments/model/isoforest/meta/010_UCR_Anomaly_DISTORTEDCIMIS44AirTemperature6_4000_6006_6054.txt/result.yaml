@@ -1,0 +1,7 @@
+hps:
+  bootstrap: true
+  max_features: 0.5
+  max_samples: 0.05
+  n_estimators: 400
+time: 75.01293789967895
+value: 0.011736938963383015

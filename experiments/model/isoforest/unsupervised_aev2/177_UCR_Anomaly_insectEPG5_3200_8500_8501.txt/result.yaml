@@ -1,0 +1,16 @@
+em:
+  hps:
+    bootstrap: true
+    max_features: 0.7
+    max_samples: 0.01
+    n_estimators: 100
+  time: 964.58235713467
+  value: 14781.63814443652
+mv:
+  hps:
+    bootstrap: true
+    max_features: 0.5
+    max_samples: 0.05
+    n_estimators: 200
+  time: 1057.8436204567552
+  value: 2.3357441101696815e-05

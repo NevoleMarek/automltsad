@@ -1,0 +1,29 @@
+em:
+  hps:
+    decoder_hidden:
+    - 16
+    - 32
+    - 64
+    - 128
+    encoder_hidden:
+    - 128
+    - 64
+    - 32
+    latent_dim: 4
+    lr: 0.07579925513952102
+  time: 208.64397899099276
+  value: 71614.1486419544
+mv:
+  hps:
+    decoder_hidden:
+    - 32
+    - 64
+    encoder_hidden:
+    - 128
+    - 64
+    - 32
+    - 16
+    latent_dim: 7
+    lr: 0.00021561715118407183
+  time: 107.50139800499892
+  value: 6.924952982765301e-07

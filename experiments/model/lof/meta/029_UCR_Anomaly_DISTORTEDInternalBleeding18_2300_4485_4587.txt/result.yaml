@@ -1,0 +1,5 @@
+hps:
+  metric: l2
+  n_neighbors: 5
+time: 57.2382140122354
+value: 0.034151050269830674

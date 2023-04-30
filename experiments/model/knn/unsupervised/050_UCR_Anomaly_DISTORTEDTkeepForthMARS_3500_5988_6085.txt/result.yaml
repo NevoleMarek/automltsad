@@ -1,0 +1,12 @@
+em:
+  hps:
+    metric: l2
+    n_neighbors: 15
+  time: 1220.0415589399636
+  value: 35.01540186328702
+mv:
+  hps:
+    metric: l2
+    n_neighbors: 9
+  time: 1229.0369983650744
+  value: 0.0003562830814462617

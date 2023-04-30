@@ -1,0 +1,12 @@
+hps:
+  d_ff: 256
+  d_layers: 1
+  d_model: 512
+  dropout: 0
+  e_layers: 1
+  factor: 5
+  lr: 3.185588032059878e-05
+  n_heads: 4
+  num_levels: 2
+time: 277.3683091364801
+value: 0.1786268816984935

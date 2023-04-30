@@ -1,0 +1,14 @@
+hps:
+  decoder_hidden:
+  - 16
+  - 32
+  - 64
+  - 128
+  encoder_hidden:
+  - 128
+  - 64
+  - 32
+  latent_dim: 4
+  lr: 0.005473823850148548
+time: 170.51792688667774
+value: 1.0

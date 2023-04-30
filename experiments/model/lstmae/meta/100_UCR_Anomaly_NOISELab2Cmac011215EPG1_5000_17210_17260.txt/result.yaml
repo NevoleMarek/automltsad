@@ -1,0 +1,9 @@
+hps:
+  dropout:
+  - 0.1
+  - 0.1
+  hidden_size: 12
+  lr: 0.0015218533093279264
+  n_layers: 2
+time: 306.3786703571677
+value: 1.0

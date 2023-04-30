@@ -1,0 +1,20 @@
+em:
+  hps:
+    dropout:
+    - 0
+    - 0
+    hidden_size: 6
+    lr: 0.00048693373857161516
+    n_layers: 3
+  time: 325.84379615599755
+  value: 0.002278096692012836
+mv:
+  hps:
+    dropout:
+    - 0
+    - 0
+    hidden_size: 11
+    lr: 0.032866555418154836
+    n_layers: 2
+  time: 276.3156052909908
+  value: 9.815568774536592
