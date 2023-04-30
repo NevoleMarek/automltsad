@@ -22,7 +22,7 @@ class Informer(nn.Module):
         seq_len,
         label_len,
         out_len,
-        factor=5,
+        factor=4,
         d_model=512,
         n_heads=8,
         e_layers=3,

@@ -1280,6 +1280,7 @@ class LSTM_AE_Det(BaseEstimator):
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        direction='minimize',
         **kwargs,
     ) -> None:
         self.name = 'lstmae'
@@ -1296,8 +1297,10 @@ class LSTM_AE_Det(BaseEstimator):
             n_layers=self.n_layers,
             dropout=self.dropout,
             learning_rate=self.lr,
+            direction=direction,
         )
         self.trainer_config = trainer_config
+        self.direction = direction
 
     def fit(self, X: np.ndarray, y=None):
         """
@@ -1331,14 +1334,15 @@ class LSTM_AE_Det(BaseEstimator):
             drop_last=True,
         )
         val_loader = DataLoader(
-            X_valid.to(torch.float32), batch_size=self.batch_size * 4
+            X_valid.to(torch.float32),
+            batch_size=self.batch_size,
         )
 
         trainer = pl.Trainer(**self.trainer_config)
         trainer.fit(self.model, train_loader, val_loader)
 
         # Empirical covariance for anomaly scoring
-        out = pl.Trainer().predict(self.model, val_loader)
+        out = pl.Trainer(**self.trainer_config).predict(self.model, val_loader)
         out = torch.cat(out, dim=0)
         errs = (out - X_valid).abs()
         err_vecs = errs.squeeze().detach().numpy()
@@ -1380,10 +1384,11 @@ class LSTM_AE_Det(BaseEstimator):
         validate_data_3d(X)
         X_tensor = torch.from_numpy(X)
         eval_loader = DataLoader(
-            X_tensor.to(torch.float32), batch_size=self.batch_size * 8
+            X_tensor.to(torch.float32),
+            batch_size=self.batch_size,
         )
 
-        trainer = pl.Trainer()
+        trainer = pl.Trainer(**self.trainer_config)
         out = trainer.predict(self.model, eval_loader)
         out = torch.cat(out, dim=0)
         errs = (out - X_tensor).abs()
@@ -1420,17 +1425,20 @@ class VAE_Det(BaseEstimator):
     def __init__(
         self,
         window_size,
+        beta=0.0001,
         encoder_hidden=[128, 64, 32],
         decoder_hidden=[32, 64, 128],
         latent_dim=16,
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        direction='minimize',
         **kwargs,
     ) -> None:
         self.name = 'vae'
         self.fitted = False
         self.window_size = window_size
+        self.beta = beta
         self.encoder_hidden = encoder_hidden
         self.decoder_hidden = decoder_hidden
         self.latent_dim = latent_dim
@@ -1438,12 +1446,15 @@ class VAE_Det(BaseEstimator):
         self.batch_size = batch_size
         self.model = VAE(
             window_size=self.window_size,
+            beta=self.beta,
             encoder_hidden=self.encoder_hidden,
             decoder_hidden=self.decoder_hidden,
             latent_dim=self.latent_dim,
             learning_rate=self.lr,
+            direction=direction,
         )
         self.trainer_config = trainer_config
+        self.direction = direction
 
     def fit(self, X: np.ndarray, y=None):
         """
@@ -1475,7 +1486,7 @@ class VAE_Det(BaseEstimator):
             drop_last=True,
         )
         val_loader = DataLoader(
-            X_valid.to(torch.float32), batch_size=X_valid.shape[0]
+            X_valid.to(torch.float32), batch_size=self.batch_size
         )
 
         trainer = pl.Trainer(**self.trainer_config)
@@ -1517,9 +1528,12 @@ class VAE_Det(BaseEstimator):
         validate_data_3d(X)
         n_s, n_t, n_f = X.shape
         X_tensor = torch.from_numpy(X).view(n_s, n_t * n_f)
-        eval_loader = DataLoader(X_tensor.to(torch.float32), batch_size=n_s)
+        eval_loader = DataLoader(
+            X_tensor.to(torch.float32),
+            batch_size=self.batch_size,
+        )
 
-        trainer = pl.Trainer()
+        trainer = pl.Trainer(**self.trainer_config)
         errs = trainer.predict(self.model, eval_loader)
         return torch.cat(errs, dim=0).squeeze().detach().numpy()
 
@@ -1555,13 +1569,14 @@ class TranAD_Det(BaseEstimator):
     def __init__(
         self,
         window_size,
-        n_layers,
-        ff_dim,
-        nhead,
+        n_layers=1,
+        ff_dim=16,
+        nhead=1,
         n_feats=1,
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        direction='minimize',
         **kwargs,
     ) -> None:
         self.name = 'tranad'
@@ -1580,8 +1595,10 @@ class TranAD_Det(BaseEstimator):
             n_layers=self.n_layers,
             ff_dim=self.ff_dim,
             nhead=self.nhead,
+            direction=direction,
         )
         self.trainer_config = trainer_config
+        self.direction = direction
 
     def fit(self, X: np.ndarray, y=None):
         """
@@ -1614,7 +1631,8 @@ class TranAD_Det(BaseEstimator):
             drop_last=True,
         )
         val_loader = DataLoader(
-            TensorDataset(X_valid, X_valid), batch_size=X_valid.shape[0]
+            TensorDataset(X_valid, X_valid),
+            batch_size=self.batch_size,
         )
 
         trainer = pl.Trainer(**self.trainer_config)
@@ -1657,10 +1675,11 @@ class TranAD_Det(BaseEstimator):
         n_s, n_t, n_f = X.shape
         X_tensor = torch.from_numpy(X).to(torch.float32)
         eval_loader = DataLoader(
-            TensorDataset(X_tensor, X_tensor), batch_size=n_s
+            TensorDataset(X_tensor, X_tensor),
+            batch_size=self.batch_size,
         )
 
-        trainer = pl.Trainer()
+        trainer = pl.Trainer(**self.trainer_config)
         errs = trainer.predict(self.model, eval_loader)
         return torch.cat(errs, dim=0).squeeze().detach().numpy()
 
@@ -1692,11 +1711,12 @@ class GDN_Det(BaseEstimator):
     def __init__(
         self,
         window_size,
-        n_hidden,
+        n_hidden=1,
         n_feats=1,
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        direction='minimize',
         **kwargs,
     ) -> None:
         self.name = 'gdn'
@@ -1711,8 +1731,10 @@ class GDN_Det(BaseEstimator):
             window_size=self.window_size,
             n_hidden=self.n_hidden,
             learning_rate=self.lr,
+            direction=direction,
         )
         self.trainer_config = trainer_config
+        self.direction = direction
 
     def fit(self, X: np.ndarray, y=None):
         """
@@ -1750,7 +1772,8 @@ class GDN_Det(BaseEstimator):
             drop_last=True,
         )
         val_loader = DataLoader(
-            TensorDataset(X_valid, y_valid), batch_size=X_valid.shape[0]
+            TensorDataset(X_valid, y_valid),
+            batch_size=self.batch_size,
         )
 
         trainer = pl.Trainer(**self.trainer_config)
@@ -1795,10 +1818,11 @@ class GDN_Det(BaseEstimator):
         X_eval = X_tensor[:, :-1, :]
 
         eval_loader = DataLoader(
-            TensorDataset(X_eval, y_eval), batch_size=X_eval.shape[0]
+            TensorDataset(X_eval, y_eval),
+            batch_size=self.batch_size,
         )
 
-        trainer = pl.Trainer()
+        trainer = pl.Trainer(**self.trainer_config)
         errs = trainer.predict(self.model, eval_loader)
         zeros = torch.zeros(X_eval.shape[1], 1)
         return torch.cat([zeros] + errs, dim=0).squeeze().numpy()
@@ -1814,8 +1838,6 @@ class GTA_Det(BaseEstimator):
 
     Parameters
     ----------
-    num_nodes : int
-        Number of features (sensors/channels)
     seq_len : int
         Size of input to encoder
     label_len : int
@@ -1826,6 +1848,8 @@ class GTA_Det(BaseEstimator):
         Number of layers in GraphTemporalEmbedding module
     window_size : int
         Size of input to fit method must be equal to seq_len + out_len
+    num_nodes : int
+        Number of features (sensors/channels)
     lr : float, default 1r-3
         Learning rate
     batch_size : int, default 256
@@ -1837,22 +1861,23 @@ class GTA_Det(BaseEstimator):
 
     def __init__(
         self,
-        num_nodes,
         seq_len,
         label_len,
         out_len,
-        num_levels,
         window_size,
-        factor=5,
+        num_levels=1,
+        num_nodes=1,
+        factor=4,
         d_model=512,
         n_heads=8,
-        e_layers=3,
-        d_layers=2,
+        e_layers=2,
+        d_layers=1,
         d_ff=512,
         dropout=0.0,
         lr=1e-3,
         batch_size=256,
         trainer_config=None,
+        direction='minimize',
         **kwargs,
     ) -> None:
         self.name = 'gta'
@@ -1886,8 +1911,10 @@ class GTA_Det(BaseEstimator):
             out_len=self.out_len,
             num_levels=self.num_levels,
             learning_rate=self.lr,
+            direction=direction,
         )
         self.trainer_config = trainer_config
+        self.direction = direction
         if seq_len + out_len != window_size:
             raise ValueError(
                 (
@@ -1928,7 +1955,7 @@ class GTA_Det(BaseEstimator):
         )
         val_loader = DataLoader(
             TensorDataset(X_valid, y_valid, X_valid, y_valid),
-            batch_size=X_valid.shape[0],
+            batch_size=self.batch_size,
         )
 
         trainer = pl.Trainer(**self.trainer_config)
@@ -1976,10 +2003,10 @@ class GTA_Det(BaseEstimator):
 
         eval_loader = DataLoader(
             TensorDataset(X_eval, y_eval, X_eval, y_eval),
-            batch_size=X_eval.shape[0],
+            batch_size=self.batch_size,
         )
 
-        trainer = pl.Trainer()
+        trainer = pl.Trainer(**self.trainer_config)
         errs = trainer.predict(self.model, eval_loader)
         zeros = torch.zeros(X_eval.shape[1], 1)
         return torch.cat([zeros] + errs, dim=0).squeeze().numpy()

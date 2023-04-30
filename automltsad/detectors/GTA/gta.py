@@ -188,7 +188,7 @@ class GTA(pl.LightningModule):
         out_len,
         num_levels,
         learning_rate,
-        factor=5,
+        factor=4,
         d_model=512,
         n_heads=8,
         e_layers=3,
@@ -199,7 +199,8 @@ class GTA(pl.LightningModule):
         embed='fixed',
         data='ETTh',
         activation='gelu',
-        device=torch.device('cpu'),
+        device=torch.device('cuda:0'),
+        direction='minimize',
     ):
         super().__init__()
         self.num_nodes = num_nodes
@@ -208,6 +209,7 @@ class GTA(pl.LightningModule):
         self.out_len = out_len
         self.num_levels = num_levels
         self.learning_rate = learning_rate
+        self.direction = direction
 
         self.gt_embedding = GraphTemporalEmbedding(
             num_nodes,
@@ -240,7 +242,9 @@ class GTA(pl.LightningModule):
 
     def forward(self, batch_x, batch_y, batch_x_mark, batch_y_mark):
         batch_x = self.gt_embedding(batch_x)
-        dec_inp = torch.zeros_like(batch_y[:, -self.out_len :, :])
+        dec_inp = torch.zeros_like(
+            batch_y[:, -self.out_len :, :], device=self.device
+        )
         dec_inp = torch.cat([batch_y[:, : self.label_len, :], dec_inp], dim=1)
         output = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
         return output
@@ -248,22 +252,30 @@ class GTA(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         batch_x, batch_y, batch_x_mark, batch_y_mark = batch
         batch_x = self.gt_embedding(batch_x)
-        dec_inp = torch.zeros_like(batch_y[:, -self.out_len :, :])
+        dec_inp = torch.zeros_like(
+            batch_y[:, -self.out_len :, :], device=self.device
+        )
         dec_inp = torch.cat([batch_y[:, : self.label_len, :], dec_inp], dim=1)
         output = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
         y = batch_y[:, -self.out_len :, :]
         loss = F.mse_loss(y, output)
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         batch_x, batch_y, batch_x_mark, batch_y_mark = batch
         batch_x = self.gt_embedding(batch_x)
-        dec_inp = torch.zeros_like(batch_y[:, -self.out_len :, :])
+        dec_inp = torch.zeros_like(
+            batch_y[:, -self.out_len :, :], device=self.device
+        )
         dec_inp = torch.cat([batch_y[:, : self.label_len, :], dec_inp], dim=1)
         output = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
         y = batch_y[:, -self.out_len :, :]
         loss = F.mse_loss(y, output)
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('val_loss', loss, prog_bar=True)
         return loss
 

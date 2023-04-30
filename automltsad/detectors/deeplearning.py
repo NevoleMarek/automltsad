@@ -19,9 +19,15 @@ torch.manual_seed(1)
 
 ## GDN Model (AAAI 21)
 class GDN(pl.LightningModule):
-    def __init__(self, n_feats, window_size, n_hidden, learning_rate):
+    def __init__(
+        self,
+        n_feats,
+        window_size,
+        n_hidden,
+        learning_rate,
+        direction='minimize',
+    ):
         super().__init__()
-        self.save_hyperparameters()
         self.learning_rate = learning_rate
         self.n_feats = n_feats
         self.n_window = window_size
@@ -32,6 +38,7 @@ class GDN(pl.LightningModule):
         self.g = dgl.graph((torch.tensor(src_ids), torch.tensor(dst_ids)))
         self.g = dgl.add_self_loop(self.g)
         self.feature_gat = GATConv(1, 1, self.n_feats)
+        self.direction = direction
 
         self.fcn = nn.Sequential(
             nn.Linear(self.n_feats, self.n_hidden),
@@ -51,6 +58,8 @@ class GDN(pl.LightningModule):
         feat_r = self.feature_gat(self.g, x.view(n_f, n_s, n_t, 1))
         y_hat = self.fcn(feat_r).squeeze()[:, -1]
         loss = F.mse_loss(y_hat, y)
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
@@ -59,6 +68,8 @@ class GDN(pl.LightningModule):
         n_s, n_t, n_f = x.shape
         feat_r = self.feature_gat(self.g, x.view(n_f, n_s, n_t, 1))
         y_hat = self.fcn(feat_r).squeeze()[:, -1]
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         loss = F.mse_loss(y_hat, y)
         self.log('val_loss', loss, prog_bar=True)
         return loss
@@ -76,10 +87,16 @@ class GDN(pl.LightningModule):
 # Proposed Model + Self Conditioning + Adversarial + MAML (VLDB 22)
 class TranAD(pl.LightningModule):
     def __init__(
-        self, n_feats, learning_rate, window_size, n_layers, ff_dim, nhead
+        self,
+        n_feats,
+        learning_rate,
+        window_size,
+        n_layers,
+        ff_dim,
+        nhead,
+        direction='minimize',
     ):
         super().__init__()
-        self.save_hyperparameters()
         self.learning_rate = learning_rate
         self.n_feats = n_feats
         self.n_window = window_size
@@ -119,6 +136,7 @@ class TranAD(pl.LightningModule):
         )
         self.fcn = nn.Sequential(nn.Linear(2 * self.n_feats, self.n_feats))
         self.sqrtn_feats = np.sqrt(self.n_feats)
+        self.direction = direction
 
     def encode(self, src, c, tgt):
         src = torch.cat((src, c), dim=2)
@@ -135,7 +153,7 @@ class TranAD(pl.LightningModule):
         n = self.current_epoch + 1
 
         # Phase 1
-        fcs = torch.zeros_like(src)
+        fcs = torch.zeros_like(src, device=self.device)
         O_1 = self.fcn(self.transformer_decoder1(*self.encode(src, fcs, tgt)))
         O_2 = self.fcn(self.transformer_decoder2(*self.encode(src, fcs, tgt)))
 
@@ -154,7 +172,7 @@ class TranAD(pl.LightningModule):
         n = self.current_epoch + 1
 
         # Phase 1
-        fcs = torch.zeros_like(src)
+        fcs = torch.zeros_like(src, device=self.device)
         O_1 = self.fcn(self.transformer_decoder1(*self.encode(src, fcs, tgt)))
         O_2 = self.fcn(self.transformer_decoder2(*self.encode(src, fcs, tgt)))
 
@@ -172,6 +190,8 @@ class TranAD(pl.LightningModule):
             O_2_hat, src
         )
         loss = l_1 + l_2
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
@@ -182,7 +202,7 @@ class TranAD(pl.LightningModule):
         n = self.current_epoch + 1
 
         # Phase 1
-        fcs = torch.zeros_like(src)
+        fcs = torch.zeros_like(src, device=self.device)
         O_1 = self.fcn(self.transformer_decoder1(*self.encode(src, fcs, tgt)))
         O_2 = self.fcn(self.transformer_decoder2(*self.encode(src, fcs, tgt)))
 
@@ -200,6 +220,8 @@ class TranAD(pl.LightningModule):
             O_2_hat, src
         )
         loss = l_1 + l_2
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('val_loss', loss, prog_bar=True)
         return loss
 
@@ -225,15 +247,19 @@ class VAE(pl.LightningModule):
     def __init__(
         self,
         window_size,
+        beta=0.0001,
         encoder_hidden=[128, 64, 32],
         decoder_hidden=[32, 64, 128],
         latent_dim=16,
         learning_rate=1e-3,
+        direction='minimize',
     ):
         super().__init__()
         self.save_hyperparameters()
         self.learning_rate = learning_rate
+        self.direction = direction
 
+        self.beta = beta
         self.window_size = window_size
         self.encoder_hidden = encoder_hidden
         self.decoder_hidden = decoder_hidden
@@ -243,8 +269,6 @@ class VAE(pl.LightningModule):
         self.mu = nn.Linear(self.encoder_hidden[-1], latent_dim)
         self.sigma = nn.Linear(self.encoder_hidden[-1], latent_dim)
         self.decoder = self._build_decoder()
-
-        self.N = torch.distributions.Normal(0, 1)
 
     def _build_encoder(self):
         in_features = self.window_size
@@ -280,19 +304,33 @@ class VAE(pl.LightningModule):
         x = batch
         z = self.encoder(x)
         mu, sigma = self.mu(z), torch.exp(self.sigma(z))
-        z = mu + sigma * self.N.sample(mu.shape)
+        z = mu + sigma * torch.normal(0, 1, size=mu.shape, device=self.device)
         self.kl = ((sigma**2 + mu**2) / 2 - torch.log(sigma) - 1 / 2).sum()
         x_hat = self.decoder(z)
+        return x_hat
+
+    def encode(self, batch):
+        x = batch
+        z = self.encoder(x)
+        mu, sigma = self.mu(z), torch.exp(self.sigma(z))
+        z = mu + sigma * torch.normal(0, 1, size=mu.shape, device=self.device)
+        return z
+
+    def decode(self, batch):
+        x = batch
+        x_hat = self.decoder(batch)
         return x_hat
 
     def training_step(self, batch, batch_idx):
         x = batch
         z = self.encoder(x)
         mu, sigma = self.mu(z), torch.exp(self.sigma(z))
-        z = mu + sigma * self.N.sample(mu.shape).to(self.device)
+        z = mu + sigma * torch.normal(0, 1, size=mu.shape, device=self.device)
         self.kl = ((sigma**2 + mu**2) / 2 - torch.log(sigma) - 1 / 2).sum()
         x_hat = self.decoder(z)
-        loss = F.mse_loss(x_hat, x) + 0.0001 * self.kl
+        loss = F.mse_loss(x_hat, x) + self.beta * self.kl
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
@@ -300,10 +338,12 @@ class VAE(pl.LightningModule):
         x = batch
         z = self.encoder(x)
         mu, sigma = self.mu(z), torch.exp(self.sigma(z))
-        z = mu + sigma * self.N.sample(mu.shape).to(self.device)
+        z = mu + sigma * torch.normal(0, 1, size=mu.shape, device=self.device)
         self.kl = ((sigma**2 + mu**2) / 2 - torch.log(sigma) - 1 / 2).sum()
         x_hat = self.decoder(z)
-        loss = F.mse_loss(x_hat, x)
+        loss = F.mse_loss(x_hat, x) + self.beta * self.kl
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('val_loss', loss, prog_bar=True)
         return loss
 
@@ -326,10 +366,11 @@ class LSTM_AE(pl.LightningModule):
         n_layers=1,
         dropout=(0.1, 0.1),
         learning_rate=1e-3,
+        direction='minimize',
     ):
         super().__init__()
-        self.save_hyperparameters()
         self.learning_rate = learning_rate
+        self.direction = direction
 
         self.n_feats = n_feats
         self.hidden_size = hidden_size
@@ -354,14 +395,18 @@ class LSTM_AE(pl.LightningModule):
     def forward(self, batch):
         x = batch
         enc_state = (
-            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
-            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
+            torch.zeros(
+                self.n_layers, x.shape[0], self.hidden_size, device=self.device
+            ),
+            torch.zeros(
+                self.n_layers, x.shape[0], self.hidden_size, device=self.device
+            ),
         )
         _, enc_state = self.enc(x, enc_state)
 
         dec_state = enc_state
 
-        out = torch.zeros_like(x)
+        out = torch.zeros_like(x, device=self.device)
         for i in reversed(range(x.shape[1])):
             out[:, i, :] = self.out(dec_state[0][-1])
 
@@ -374,14 +419,18 @@ class LSTM_AE(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x = batch
         enc_state = (
-            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
-            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
+            torch.zeros(
+                self.n_layers, x.shape[0], self.hidden_size, device=self.device
+            ),
+            torch.zeros(
+                self.n_layers, x.shape[0], self.hidden_size, device=self.device
+            ),
         )
         _, enc_state = self.enc(x, enc_state)
 
         dec_state = enc_state
 
-        out = torch.zeros_like(x)
+        out = torch.zeros_like(x, device=self.device)
         for i in reversed(range(x.shape[1])):
             out[:, i, :] = self.out(dec_state[0][-1])
 
@@ -391,20 +440,26 @@ class LSTM_AE(pl.LightningModule):
                 _, dec_state = self.dec(out[:, i].unsqueeze(1), dec_state)
 
         loss = F.l1_loss(out, x)
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x = batch
         enc_state = (
-            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
-            torch.zeros(self.n_layers, x.shape[0], self.hidden_size),
+            torch.zeros(
+                self.n_layers, x.shape[0], self.hidden_size, device=self.device
+            ),
+            torch.zeros(
+                self.n_layers, x.shape[0], self.hidden_size, device=self.device
+            ),
         )
         _, enc_state = self.enc(x, enc_state)
 
         dec_state = enc_state
 
-        out = torch.zeros_like(x)
+        out = torch.zeros_like(x, device=self.device)
         for i in reversed(range(x.shape[1])):
             out[:, i, :] = self.out(dec_state[0][-1])
 
@@ -414,6 +469,8 @@ class LSTM_AE(pl.LightningModule):
                 _, dec_state = self.dec(out[:, i].unsqueeze(1), dec_state)
 
         loss = F.l1_loss(out, x)
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('val_loss', loss, prog_bar=True)
         return loss
 
@@ -433,10 +490,11 @@ class ConvAutoEncoder(pl.LightningModule):
         n_layers,
         latent_dim=16,
         learning_rate=1e-3,
+        direction='minimize',
     ):
         super().__init__()
-        self.save_hyperparameters()
         self.learning_rate = learning_rate
+        self.direction = direction
 
         self.n_layers = n_layers
         self.input_size = input_size
@@ -530,6 +588,8 @@ class ConvAutoEncoder(pl.LightningModule):
         z = self.encoder(x)
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x)
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
@@ -538,6 +598,8 @@ class ConvAutoEncoder(pl.LightningModule):
         z = self.encoder(x)
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x)
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('val_loss', loss, prog_bar=True)
         return loss
 
@@ -557,10 +619,12 @@ class AutoEncoder(pl.LightningModule):
         decoder_hidden=[32, 64, 128],
         latent_dim=16,
         learning_rate=1e-3,
+        direction='minimize',
     ):
         super().__init__()
         self.save_hyperparameters()
         self.learning_rate = learning_rate
+        self.direction = direction
 
         self.window_size = window_size
         self.encoder_hidden = encoder_hidden
@@ -614,6 +678,8 @@ class AutoEncoder(pl.LightningModule):
         z = self.encoder(x)
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x)
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('train_loss', loss, prog_bar=True)
         return loss
 
@@ -622,6 +688,8 @@ class AutoEncoder(pl.LightningModule):
         z = self.encoder(x)
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x)
+        if self.direction == 'maximize':
+            loss = torch.finfo(loss.dtype).max - loss
         self.log('val_loss', loss, prog_bar=True)
         return loss
 

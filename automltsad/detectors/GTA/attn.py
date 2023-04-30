@@ -37,7 +37,7 @@ class FullAttention(nn.Module):
 
 class ProbAttention(nn.Module):
     def __init__(
-        self, mask_flag=True, factor=5, scale=None, attention_dropout=0.1
+        self, mask_flag=True, factor=4, scale=None, attention_dropout=0.1
     ):
         super(ProbAttention, self).__init__()
         self.factor = factor
@@ -60,6 +60,8 @@ class ProbAttention(nn.Module):
 
         # find the Top_k query with sparisty measurement
         M = Q_K_sample.max(-1)[0] - torch.div(Q_K_sample.sum(-1), L)
+        if n_top > M.shape[-1]:
+            n_top = M.shape[-1]
         M_top = M.topk(n_top, sorted=False)[1]
 
         # use the reduced Q to calculate Q_K
