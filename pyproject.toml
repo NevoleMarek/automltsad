@@ -20,13 +20,15 @@ torchvision = "^0.14.1"
 dgl = "^1.0.0"
 dglgo = "^0.0.2"
 astropy = "^5.2.1"
-pytorch-lightning = "^1.9.1"
+pytorch-lightning = "1.9.3"
 rich = "^13.3.1"
 pyg-lib = { url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/pyg_lib-0.1.0%2Bpt113cu117-cp310-cp310-linux_x86_64.whl"}
 torch-scatter = { url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/torch_scatter-2.1.0%2Bpt113cu117-cp310-cp310-linux_x86_64.whl" }
 torch-sparse = { url = "https://data.pyg.org/whl/torch-1.13.0%2Bcu117/torch_sparse-0.6.16%2Bpt113cu117-cp310-cp310-linux_x86_64.whl" }
 torch-geometric = "^2.2.0"
 h5py = "^3.8.0"
+tsfresh = "^0.20.0"
+dask = "^2023.3.2"
 
 [tool.poetry.group.dev.dependencies]
 black = "^22.12.0"
@@ -38,6 +40,9 @@ tqdm = "^4.64.1"
 pandas = "^1.5.3"
 ipywidgets= "~7"
 torchinfo = "^1.7.2"
+latex = "^0.7.0"
+seaborn = "^0.12.2"
+umap-learn = "^0.5.3"
 
 [build-system]
 requires = ["poetry-core"]
