@@ -93,13 +93,9 @@ def get_hparams(trial, det, det_cfg):
                     'hidden_size',
                     hp['hidden_size']['min'],
                     hp['hidden_size']['max'],
-                    hp['hidden_size']['step'],
                 ),
                 n_layers=trial.suggest_categorical('n_layers', hp['n_layers']),
                 dropout=trial.suggest_categorical('dropout', hp['dropout']),
-                batch_size=trial.suggest_categorical(
-                    'batch_size', hp['batch_size']
-                ),
                 lr=trial.suggest_float(
                     'lr', hp['lr']['min'], hp['lr']['max'], log=True
                 ),
@@ -111,9 +107,6 @@ def get_hparams(trial, det, det_cfg):
                 ),
                 decoder_hidden=trial.suggest_categorical(
                     'decoder_hidden', hp['decoder_hidden']
-                ),
-                batch_size=trial.suggest_categorical(
-                    'batch_size', hp['batch_size']
                 ),
                 latent_dim=trial.suggest_int(
                     'latent_dim',
@@ -128,27 +121,12 @@ def get_hparams(trial, det, det_cfg):
             return dict(
                 n_layers=trial.suggest_categorical('n_layers', hp['n_layers']),
                 ff_dim=trial.suggest_categorical('ff_dim', hp['ff_dim']),
-                nhead=trial.suggest_categorical('nhead', hp['nhead']),
-                batch_size=trial.suggest_categorical(
-                    'batch_size', hp['batch_size']
-                ),
                 lr=trial.suggest_float(
                     'lr', hp['lr']['min'], hp['lr']['max'], log=True
                 ),
             )
         case 'gta':
             return dict(
-                num_levels=trial.suggest_categorical(
-                    'num_levels', hp['num_levels']
-                ),
-                batch_size=trial.suggest_categorical(
-                    'batch_size', hp['batch_size']
-                ),
-                factor=trial.suggest_categorical('factor', hp['factor']),
-                d_model=trial.suggest_categorical('d_model', hp['d_model']),
-                n_heads=trial.suggest_categorical('n_heads', hp['n_heads']),
-                e_layers=trial.suggest_categorical('e_layers', hp['e_layers']),
-                d_layers=trial.suggest_categorical('d_layers', hp['d_layers']),
                 d_ff=trial.suggest_categorical('d_ff', hp['d_ff']),
                 dropout=trial.suggest_categorical('dropout', hp['dropout']),
                 lr=trial.suggest_float(
