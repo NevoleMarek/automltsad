@@ -12,7 +12,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from utils import get_dataset_seasonality, prepare_data, read_file
 
-from automltsad.detectors import AutoEncoder
+from automltsad.detectors import VAE
 from automltsad.detectors.callbacks import (
     EarlyStopping,
     LearningRateFinder,
@@ -20,7 +20,7 @@ from automltsad.detectors.callbacks import (
 )
 
 warnings.filterwarnings('ignore')
-_LOGGER = logging.getLogger('pytorch_lightning').setLevel(logging.ERROR)
+logging.getLogger('pytorch_lightning').setLevel(logging.ERROR)
 
 
 def main():
@@ -44,14 +44,12 @@ def main():
             batch_size=256,
             drop_last=True,
         )
-        val_loader = DataLoader(
-            X_valid.to(torch.float32), batch_size=X_valid.shape[0]
-        )
+        val_loader = DataLoader(X_valid.to(torch.float32), batch_size=256)
 
         l = int(np.log2(window_sz) - 0.0001)
         hidden = [8, 2 ** ((l + 3) // 2), 2**l]
 
-        model = AutoEncoder(
+        model = VAE(
             window_sz,
             encoder_hidden=hidden[::-1],
             decoder_hidden=hidden,
@@ -69,7 +67,7 @@ def main():
             enable_checkpointing=False,
             callbacks=[
                 ModelCheckpoint(
-                    dirpath=DATA_DIR + 'ae',
+                    dirpath=DATA_DIR + 'vae',
                     filename=dataset + '-',
                     monitor='val_loss',
                     save_top_k=1,
@@ -84,7 +82,7 @@ def main():
         elapsed = end - start
         res.append([dataset, elapsed])
 
-    with open(DATA_DIR + 'ae/elapsed_time.csv', mode='w') as csv_file:
+    with open(DATA_DIR + 'vae/elapsed_time.csv', mode='w') as csv_file:
         fieldnames = ['dataset', 'time']
         writer = csv.writer(csv_file, delimiter=',', quotechar='"')
         writer.writerow(fieldnames)
