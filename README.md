@@ -6,13 +6,13 @@ This repository contains the code and experiments for the master's thesis on usi
 
 ## Contents
 This repository contains two directories:
-- [AutoMLTSAD](automlstad)
+- [AutoMLTSAD](automlstad/)
     - A Python package developed for anomaly detection
     - Contains all models used in the thesis and more
     - Easy to use framework to handle time series data of many formats
     - Contains utility and transform functions
     - Recent evaluation schemas and metrics are implementeds
-- [Experiments](experiments)
+- [Experiments](experiments/)
     - Contains all scripts and configurations used to run the experiments
     - Results are explored in Jupyter notebooks
 
