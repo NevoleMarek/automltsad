@@ -21,5 +21,5 @@ To install the package, follow these instructions:
 1. Clone the repository to your local machine.
 2. The package was developed using Python [3.10.2](https://www.python.org/downloads/release/python-3102/), which is also required for the Poetry environment to work.
 3. [Poetry](https://python-poetry.org/) is used for dependency management. Install it by running `pip install poetry`.
-4. In the directory with `pyproject.toml`, run `poetry install`. This may take a while since many packages are used.
+4. In the directory with `pyproject.toml`, run `poetry install`. This may take a while since many packages are used. Total enviroment size is around 5 GB.
 5. After successfully installing all packages, you can run the code.
