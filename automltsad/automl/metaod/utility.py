@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Author: Yue Zhao <zhaoy@cmu.edu>
+# License: BSD 2 clause
 import numpy as np
 
 

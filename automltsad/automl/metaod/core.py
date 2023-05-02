@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# Author: Yue Zhao <zhaoy@cmu.edu>
+# License: BSD 2 clause
 from copy import deepcopy
 
 import numpy as np
@@ -71,7 +74,6 @@ class MetaODClass(object):
                 ndcg_score(
                     [self.ratings[w, :]],
                     [np.dot(user_vecs[w, :], item_vecs.T)],
-                    1,
                 )
             )
 
@@ -259,7 +261,6 @@ class MetaODClass(object):
     def predict(self, test_meta):
 
         test_meta = check_array(test_meta)
-        assert test_meta.shape[1] == 200
 
         test_meta_scaled = self.pca_.transform(test_meta)
         # print('B', test_meta_scaled.shape)
