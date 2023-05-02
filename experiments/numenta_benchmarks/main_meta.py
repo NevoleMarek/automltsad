@@ -24,6 +24,7 @@ from optuna.integration import PyTorchLightningPruningCallback
 from optuna.pruners import SuccessiveHalvingPruner
 from optuna.samplers import TPESampler
 from pytorch_lightning.callbacks import EarlyStopping
+from sklearn.model_selection import KFold
 from sklearn.preprocessing import MinMaxScaler as MMScaler
 from utils import (
     get_dataset_seasonality,
@@ -152,7 +153,7 @@ def create_tasks(detectors, datasets, windows, file):
     tasks = []
     for detector in detectors:
         for dataset in datasets:
-            task = [detector, dataset, windows[dataset][0]]
+            task = [detector, dataset, windows[dataset]]
             if not skip_task(task, EXPERIMENT, file):
                 tasks.append(task)
     return tasks
@@ -162,12 +163,11 @@ def main():
     ###################################
     # Optimize models on train datasets
     ###################################
-    MAX_WORKERS = 40
+    MAX_WORKERS = 2
     # Load configs and metadata
     automl_cfg = get_yaml_config(CONFIG_DIR + EXPERIMENT)
-    train_datasets = [d.strip('\n') for d in read_file(TRAIN_DATASETS)]
     path = DATA_DIR + 'datasets/numenta'
-    test_datasets = [
+    datasets = [
         f
         for f in os.listdir(path)
         if os.path.isfile(os.path.join(path, f)) and f.endswith('.csv')
@@ -180,7 +180,7 @@ def main():
 
     # tasks = create_tasks(
     #     automl_cfg['detectors'],
-    #     train_datasets,
+    #     datasets,
     #     datasets_seasonality,
     #     'result.yaml',
     # )
@@ -196,18 +196,19 @@ def main():
     ########################################
     # Create performance matrix from results
     ########################################
-    n_datasets = len(train_datasets)
+    n_datasets = len(datasets)
     n_models = len(automl_cfg['detectors'])
-    performance_matrix = np.zeros((n_datasets, n_models))
+    # performance_matrix = np.zeros((n_datasets, n_models))
 
     # for i, d in enumerate(automl_cfg['detectors']):
-    #     for j, dt in enumerate(train_datasets):
-    #         with open(f'{MODEL_DIR}{d}/{EXPERIMENT}/{dt}/result.yaml') as f:
+    #     for j, dt in enumerate(datasets):
+    #         with open(
+    #             f'{MODEL_DIR}{d}/numenta_{EXPERIMENT}/{dt}/result.yaml'
+    #         ) as f:
     #             r = yaml.unsafe_load(f)
     #             performance_matrix[j, i] = r['value']
-    # np.save(DATA_DIR + 'meta/perf_mat', performance_matrix)
-    performance_matrix = np.load(DATA_DIR + 'meta/perf_mat.npy')
-    print(performance_matrix.shape)
+    # np.save(DATA_DIR + 'meta/numenta_perf_mat', performance_matrix)
+    performance_matrix = np.load(DATA_DIR + 'meta/numenta_perf_mat.npy')
 
     ############################
     # Meta features for datasets
@@ -230,100 +231,82 @@ def main():
     #     ):
     #         continue
 
-    # meta_mat = np.zeros([len(train_datasets), 777])
-    # for i, ds in enumerate(train_datasets):
+    # meta_mat = np.zeros([len(datasets), 777])
+    # for i, ds in enumerate(datasets):
     #     meta_mat[i, :] = np.load(
-    #         f'{DATASET_DIR}/metafeatures/tsfresh_{ds}.npy'
-    #     )
-
-    meta_mat = np.zeros([len(train_datasets), 200])
-    for i, ds in enumerate(train_datasets):
-        meta_mat[i, :] = np.load(f'{DATASET_DIR}/metafeatures/{ds}.npy')
-
-    print(meta_mat.shape)
-
-    # use cleaned and transformed meta-features
-    meta_scalar = MMScaler()
-    meta_mat_transformed = meta_scalar.fit_transform(meta_mat)
-    meta_mat_transformed = fix_nan(meta_mat_transformed)
-
-    dump(meta_scalar, f'{DATA_DIR}/meta/' + 'metascalar.joblib')
-
-    n_train = int(len(train_datasets) * 0.75)
-
-    train_set = performance_matrix[:n_train, :].astype('float64')
-    valid_set = performance_matrix[n_train:, :].astype('float64')
-
-    train_meta = meta_mat_transformed[:n_train, :].astype('float64')
-    valid_meta = meta_mat_transformed[n_train:, :].astype('float64')
-
-    # print('Training metaod')
-
-    # learning_rate = [1, 0.1, 0.01]
-    # factors = [30, 40, 50, 60]
-    # best_clf = None
-    # best_l = -np.inf
-    # for l in learning_rate:
-    #     for f in factors:
-    #         print(l, f)
-    #         clf = MetaODClass(
-    #             train_set,
-    #             valid_performance=valid_set,
-    #             n_factors=f,
-    #             learning='sgd',
-    #         )
-    #         clf.train(
-    #             n_iter=30,
-    #             meta_features=train_meta,
-    #             valid_meta=valid_meta,
-    #             learning_rate=l,
-    #         )
-
-    #         loss = np.nanargmax(clf.valid_loss_)
-    #         if loss > best_l:
-    #             best_clf = clf
-
-    # dump(best_clf, f'{DATA_DIR}/meta/train_tsfresh.joblib')
-
-    # load PCA scalar
-    meta_scalar = load(os.path.join(DATA_DIR, 'meta/metascalar.joblib'))
-
-    # generate meta features
-    # test_meta_mat = np.zeros([len(test_datasets), 777])
-    # for i, ds in enumerate(test_datasets):
-    #     test_meta_mat[i, :] = np.load(
     #         f'{DATASET_DIR}numenta/metafeatures/tsfresh_{ds}.npy'
     #     )
 
-    test_meta_mat = np.zeros([len(test_datasets), 200])
-    for i, ds in enumerate(test_datasets):
-        test_meta_mat[i, :] = np.load(
-            f'{DATASET_DIR}numenta/metafeatures/{ds}.npy'
-        )
+    meta_mat = np.zeros([len(datasets), 200])
+    for i, ds in enumerate(datasets):
+        meta_mat[i, :] = np.load(f'{DATASET_DIR}numenta/metafeatures/{ds}.npy')
 
-    # replace nan by 0 for now
-    # todo: replace by mean is better as fix_nan
-    test_meta_mat = meta_scalar.transform(test_meta_mat)
-    test_meta_mat = np.nan_to_num(test_meta_mat, nan=0)
+    print(meta_mat.shape)
+    res = []
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    for i, (train_index, test_index) in enumerate(kf.split(datasets)):
+        print(f'Fold :{i+1}')
+        train_meta_mat = meta_mat[train_index]
+        train_performance_matrix = performance_matrix[train_index]
+        # use cleaned and transformed meta-features
+        meta_scalar = MMScaler()
+        meta_mat_transformed = meta_scalar.fit_transform(train_meta_mat)
+        meta_mat_transformed = fix_nan(meta_mat_transformed)
 
-    clf = load(f'{DATA_DIR}/meta/train_0.joblib')
-    predict_scores = clf.predict(test_meta_mat)
-    best_models = np.nanargmax(predict_scores, axis=1)
-    # print(predict_scores)
-    # print(best_models)
-    # print(automl_cfg['detectors'])
-    # print([automl_cfg['detectors'][m] for m in best_models])
-    detector_dataset = [
-        (det, dt)
+        n_train = int(len(train_index) * 0.75)
+
+        train_set = train_performance_matrix[:n_train, :].astype('float64')
+        valid_set = train_performance_matrix[n_train:, :].astype('float64')
+
+        train_meta = meta_mat_transformed[:n_train, :].astype('float64')
+        valid_meta = meta_mat_transformed[n_train:, :].astype('float64')
+
+        # print('Training metaod')
+
+        learning_rate = [1, 0.1]
+        factors = [7, 11, 15]
+        best_clf = None
+        best_l = -np.inf
+        for l in learning_rate:
+            for f in factors:
+                print(l, f)
+                clf = MetaODClass(
+                    train_set,
+                    valid_performance=valid_set,
+                    n_factors=f,
+                    learning='sgd',
+                )
+                clf.train(
+                    n_iter=20,
+                    meta_features=train_meta,
+                    valid_meta=valid_meta,
+                    learning_rate=l,
+                )
+
+                loss = np.nanargmax(clf.valid_loss_)
+                if loss > best_l:
+                    best_clf = clf
+                    best_l = l
+
+        # replace nan by 0 for now
+        # todo: replace by mean is better as fix_nan
+        test_meta_mat = meta_mat[test_index]
+        test_meta_mat = meta_scalar.transform(test_meta_mat)
+        test_meta_mat = np.nan_to_num(test_meta_mat, nan=0)
+
+        predict_scores = best_clf.predict(test_meta_mat)
+        best_models = np.nanargmax(predict_scores, axis=1)
+
         for det, dt in zip(
-            [automl_cfg['detectors'][m] for m in best_models], test_datasets
-        )
-    ]
+            [automl_cfg['detectors'][m] for m in best_models],
+            [datasets[i] for i in test_index],
+        ):
+            res.append((det, dt))
+
     dump(
-        detector_dataset,
+        res,
         f'./experiments/results/numenta_best_models.joblib',
     )
-    # print(detector_dataset)
 
 
 if __name__ == '__main__':
