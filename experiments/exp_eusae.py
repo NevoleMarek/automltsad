@@ -51,6 +51,9 @@ EXPERIMENT = 'unsupervised_aev2'
 
 
 def objective(trial, detector, dataset, det_cfg, window_sz, metric):
+    """
+    Train and evaluate one model on one dataset for one set of hyperparameters.
+    """
     # Prepare hyperparams for model
     hps = get_hparams(trial, detector, det_cfg)
     # Get model
@@ -113,6 +116,9 @@ def objective(trial, detector, dataset, det_cfg, window_sz, metric):
 
 
 def process_task(task):
+    """
+    Optimize hyperparameters on one dataset for one model.
+    """
     detector, dataset, window_sz = task
 
     # Get config
@@ -176,6 +182,10 @@ def evaluate_model(scores, labels):
 
 
 def process_evaluation(task):
+    """
+    Process and evaluate results of hyperparameter optimization using
+    supervised metrics.
+    """
     detector, dataset, window_sz = task
     # Get configs
     print(detector, dataset)
@@ -238,6 +248,9 @@ def process_evaluation(task):
 
 
 def create_tasks(detectors, datasets, windows, file):
+    """
+    Create tasks and skip already computed ones.
+    """
     tasks = []
     for detector in detectors:
         for dataset in datasets:

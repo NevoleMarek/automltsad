@@ -1,3 +1,5 @@
+# Helper and utility functions used in experiments scripts
+
 import os
 
 import numpy as np

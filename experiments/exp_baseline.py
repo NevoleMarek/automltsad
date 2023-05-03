@@ -40,6 +40,9 @@ EXPERIMENT = 'baseline'
 
 
 def evaluate_model(scores, labels):
+    """
+    Evaluate model and return various metric values.
+    """
     p, r, t = precision_recall_curve(labels, scores)
     f1 = 2 * p * r / (p + r + 1e-12)
     idx = np.nanargmax(f1)
@@ -57,6 +60,9 @@ def evaluate_model(scores, labels):
 
 
 def process_task(task):
+    """
+    Train and evaluate one model on one dataset.
+    """
     detector, dataset, window_sz = task
 
     # Get config
@@ -66,15 +72,17 @@ def process_task(task):
         window_sz = 16
 
     start = perf_counter()
-    # Window size slightly larger than 1 period
 
     # Prepare data
     train, test, labels = prepare_data(
         dataset, scale=True, window=det_cfg['window'], size=window_sz
     )
 
+    # Get model
     model = NAME_TO_MODEL[detector]
+
     hps = dict()
+    # If model runs using pytorch set configuration
     if detector in PYT_MODELS:
         hps['trainer_config'] = dict(
             accelerator='gpu',
@@ -116,10 +124,14 @@ def main():
 
     res = []
     tasks = []
+
+    # Create tasks for multiprocessing
+    # Task represents fitting one model on one dataset
     for detector in automl_cfg['detectors']:
         for dataset in datasets:
             tasks.append([detector, dataset, datasets_seasonality[dataset][0]])
 
+    # Process tasks
     with multiprocessing.Pool(MAX_WORKERS) as p:
         for result in tqdm.tqdm(
             p.imap(process_task, tasks),
@@ -127,6 +139,7 @@ def main():
         ):
             res.append(result)
 
+    # Save results
     with open(RESULTS_DIR + f'{EXPERIMENT}_results.csv', mode='a') as csv_file:
         fieldnames = [
             'detector',

@@ -29,11 +29,14 @@ def main():
     datasets_seasonality = get_dataset_seasonality()
 
     res = []
+    # Train AE for each dataset
     for dataset in tqdm.tqdm(datasets):
         start = perf_counter()
+
         window_sz = datasets_seasonality[dataset][0]
         train, _, _ = prepare_data(dataset, True, True, window_sz)
 
+        # Process data for PyTorch model
         n_s, n_t, n_f = train.shape
         X_tensor = torch.from_numpy(train.copy()).view(n_s, n_t * n_f)
         X_train, X_valid = train_test_split(
@@ -48,6 +51,7 @@ def main():
             X_valid.to(torch.float32), batch_size=X_valid.shape[0]
         )
 
+        # Hidden layers
         l = int(np.log2(window_sz) - 0.0001)
         hidden = [8, 2 ** ((l + 3) // 2), 2**l]
 
