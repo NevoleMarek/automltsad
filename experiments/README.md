@@ -10,11 +10,11 @@ Jupyter notebooks containing explorations of datasets/results of experiments:
 
 - [Window size selection](./01_window_size_importance.ipynb)
 
-- [Time series specific meta features extraction](./03_tsfresh_features.ipynb)
+- [Time series specific meta features extraction](./02_tsfresh_features.ipynb)
 
-- [UCR results exploration](./02_results_exploration.ipynb)
+- [UCR results exploration](./03_ucr_esults_exploration.ipynb)
 
-- [NAB results exploration](./04_numenta_results_exploration.ipynb)
+- [NAB results exploration](./04_nab_results_exploration.ipynb)
 
 
 Benchmark scripts:
