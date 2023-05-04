@@ -12,30 +12,30 @@ Jupyter notebooks containing explorations of datasets/results of experiments:
 
 - [Time series specific meta features extraction](./02_tsfresh_features.ipynb)
 
-- [UCR results exploration](./03_ucr_esults_exploration.ipynb)
+- [UCR results exploration](./03_ucr_results_exploration.ipynb)
 
 - [NAB results exploration](./04_nab_results_exploration.ipynb)
 
 
 Benchmark scripts:
 
-- Script for training AutoEncoder for each dataset [UCR](./main_autoencoding.py)/[NAB](./numenta_benchmarks/main_autoencoding.py)
+- Script for training AutoEncoder for each dataset [UCR](./datasets_ae.py)/[NAB](./numenta_benchmarks/datasets_ae.py)
 
-- Script for training VAE for each dataset [UCR](./main_vae.py)/ [NAB](./numenta_benchmarks/main_vae.py)
+- Script for training VAE for each dataset [UCR](./datasets_vae.py)/ [NAB](./numenta_benchmarks/datasets_vae.py)
 
-- Baseline experiment [UCR](./main_baseline.py)/[NAB](./numenta_benchmarks/main_baseline.py)
+- Baseline experiment [UCR](./exp_baseline.py)/[NAB](./numenta_benchmarks/exp_baseline.py)
 
-- US experiment [UCR](./main_unsupervised.py)/[NAB](./numenta_benchmarks/main_unsupervised.py)
+- US experiment [UCR](./exp_us.py)/[NAB](./numenta_benchmarks/exp_us.py)
 
-- EUS experiment [UCR](./main_unsupervised_ae.py)/[NAB](./numenta_benchmarks/main_unsupervised_ae.py)
+- EUS experiment [UCR](./exp_eus.py)/[NAB](./numenta_benchmarks/exp_eus.py)
 
-- EUSv experiment [UCR](./main_unsupervised_vae.py)/[NAB](./numenta_benchmarks/main_unsupervised_vae.py)
+- EUSv experiment [UCR](./exp_eusv.py)/[NAB](./numenta_benchmarks/exp_eusv.py)
 
-- EUS-AE experiment [UCR](./main_unsupervised_aev2.py)/[NAB](./numenta_benchmarks/main_unsupervised_aev2.py)
+- EUS-AE experiment [UCR](./exp_eusae.py)/[NAB](./numenta_benchmarks/exp_eusae.py)
 
-- EUS-VAE experiment [UCR](./main_unsupervised_vaev2.py)/[NAB](./numenta_benchmarks/main_unsupervised_vaev2.py)
+- EUS-VAE experiment [UCR](./exp_eusvae.py)/[NAB](./numenta_benchmarks/exp_eusvae.py)
 
-- META experiment [UCR](./main_meta.py)/[NAB](./numenta_benchmarks/main_meta.py)
+- META experiment [UCR](./exp_meta.py)/[NAB](./numenta_benchmarks/exp_meta.py)
 
 ## How to run
 
